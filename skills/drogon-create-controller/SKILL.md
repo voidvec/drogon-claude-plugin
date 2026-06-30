@@ -34,3 +34,5 @@ version: 0.1.0
 生成文件：
 - `controllers/MyCtrl.h`
 - `controllers/MyCtrl.cc`
+## 参考文件
+详细实现指南见 `references/code-guide.md`（含参数验证、代码模板、禁止模式清单）。生成代码前先读取该文件。

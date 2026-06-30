@@ -35,3 +35,5 @@ version: 0.1.0
 - `find_package(drogon REQUIRED)`
 - `target_link_libraries(your_app PRIVATE drogon::drogon drogon::orm_lib)`
 - `target_compile_definitions(your_app PRIVATE USE_COROUTINE)`
+## 参考文件
+详细实现指南见 `references/code-guide.md`（含参数验证、代码模板、禁止模式清单）。生成代码前先读取该文件。
