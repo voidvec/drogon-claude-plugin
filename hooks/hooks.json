@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -c \"import json,os; r=os.environ.get('CLAUDE_PLUGIN_ROOT',''); p=os.path.join(r,'CLAUDE.md'); print(json.dumps({'hookSpecificOutput':{'hookEventName':'SessionStart','additionalContext':open(p,encoding='utf-8').read()}})) if r and os.path.exists(p) else None\""
+            "command": "python -c \"import json,os; r=os.environ.get('CLAUDE_PLUGIN_ROOT',''); p=os.path.join(r,'CLAUDE.md'); print(json.dumps({'hookSpecificOutput':{'hookEventName':'SessionStart','additionalContext':open(p,encoding='utf-8').read()}})) if r and os.path.exists(p) else None\"",
+            "timeout": 5
           }
         ]
       }
