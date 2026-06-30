@@ -1,0 +1,21 @@
+{
+  "name": "drogon",
+  "version": "0.1.0",
+  "description": "Drogon C++ 后端开发规则与技能: 基于 Drogon 框架编写正确的异步代码, 避开回调/事件循环等高频陷阱。",
+  "author": {
+    "name": "vilas"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/vilas/drogon-claude-plugin",
+  "homepage": "https://github.com/vilas/drogon-claude-plugin#readme",
+  "keywords": [
+    "drogon",
+    "cpp",
+    "c++",
+    "web-framework",
+    "async",
+    "http-server",
+    "orm",
+    "backend"
+  ]
+}

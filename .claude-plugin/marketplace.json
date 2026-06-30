@@ -1,0 +1,18 @@
+{
+  "name": "drogon-claude-plugin",
+  "description": "Drogon C++ framework Claude Code plugin — rules and skills for correct async code generation",
+  "owner": {
+    "name": "vilas"
+  },
+  "plugins": [
+    {
+      "name": "drogon",
+      "source": ".",
+      "description": "Drogon C++ 后端开发规则与技能: 基于 Drogon 框架编写正确的异步代码, 避开回调/事件循环等高频陷阱。",
+      "author": {
+        "name": "vilas"
+      },
+      "category": "development"
+    }
+  ]
+}
