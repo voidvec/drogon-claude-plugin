@@ -1,3 +1,9 @@
+---
+name: drogon-gen-orm-crud
+description: 生成符合 drogon 约定的 ORM CRUD 代码，支持回调式和协程式，覆盖 PostgreSQL、MySQL、SQLite3。
+version: 0.1.0
+---
+
 # drogon-gen-orm-crud
 
 生成符合 drogon 约定的 ORM CRUD 代码，支持回调式和协程式。

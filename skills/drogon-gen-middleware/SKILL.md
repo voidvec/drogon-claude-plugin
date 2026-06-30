@@ -1,27 +1,33 @@
+---
+name: drogon-gen-middleware
+description: 生成 drogon Middleware（全局请求处理链）类及注册代码，支持日志、CORS、性能计时等类型。
+version: 0.1.0
+---
+
 # drogon-gen-middleware
 
 生成 drogon Middleware（全局请求处理链）类及注册代码。
 
-## When to use
+## 使用场景
 
-When global request processing is needed (logging, CORS, performance timing), use this skill to generate Middleware code that follows drogon conventions.
+当需要全局请求处理（日志、CORS、性能计时）时，使用此技能生成符合 drogon 约定的 Middleware 代码。
 
-## Input parameters
+## 输入参数
 
 - `middleware_name`: Middleware class name
 - `middleware_type`: Type (`logging`, `cors`, `timing`)
 - `modify_response`: Whether to modify the response (`true`/`false`, default `false`)
 
-## Output
+## 输出
 
-1. Middleware class header file (extending `HttpMiddleware<ClassName, false>`)
-2. `invoke()` implementation (correctly chaining via `nextCb(callback)`)
-3. `registerMiddleware()` registration code
+1. Middleware 类头文件（继承 `HttpMiddleware<ClassName, false>`）
+2. `invoke()` 实现（正确链式调用 `nextCb(callback)`）
+3. `registerMiddleware()` 注册代码
 
-## Example
+## 示例
 
 ```
 /drogon-gen-middleware middleware_name=LogMiddleware middleware_type=logging
 ```
 
-Generates a request logging Middleware.
+生成请求日志 Middleware。

@@ -1,3 +1,9 @@
+---
+name: drogon-gen-redis-config
+description: 生成 drogon 项目的 Redis 配置（config.json 片段）。
+version: 0.1.0
+---
+
 # drogon-gen-redis-config
 
 生成 drogon 项目的 Redis 配置（`config.json` 片段）。

@@ -10,7 +10,7 @@ Claude Code 插件，为基于 [Drogon](https://github.com/drogonframework/drogo
 
 ```bash
 # 添加 marketplace 源（首次）
-claude plugin marketplace add https://github.com/vilas/drogon-claude-plugin
+claude plugin marketplace add https://github.com/lucaswang420/drogon-claude-plugin
 
 # 安装插件
 claude plugin install drogon
@@ -22,7 +22,7 @@ claude plugin update drogon
 ### 方式 2：本地安装
 
 ```bash
-git clone https://github.com/vilas/drogon-claude-plugin
+git clone https://github.com/lucaswang420/drogon-claude-plugin
 cd <你的 drogon 项目>
 claude plugin install ../drogon-claude-plugin --scope project
 ```

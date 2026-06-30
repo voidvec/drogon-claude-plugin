@@ -1,3 +1,9 @@
+---
+name: drogon-setup-config
+description: 生成 drogon 项目的配置文件（config.json 或 config.yaml），包含监听地址、SSL、会话、日志等配置。
+version: 0.1.0
+---
+
 # drogon-setup-config
 
 生成 drogon 项目的配置文件（`config.json` 或 `config.yaml`）。

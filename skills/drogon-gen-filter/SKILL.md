@@ -1,27 +1,33 @@
+---
+name: drogon-gen-filter
+description: 生成 drogon Filter（请求拦截器）类及注册代码，支持认证、限流、输入校验等过滤类型。
+version: 0.1.0
+---
+
 # drogon-gen-filter
 
 生成 drogon Filter（请求拦截器）类及注册代码。
 
-## When to use
+## 使用场景
 
-When request interception is needed (authentication, rate limiting, input validation), use this skill to generate Filter code that follows drogon conventions.
+当需要请求拦截（认证、限流、输入校验）时，使用此技能生成符合 drogon 约定的 Filter 代码。
 
-## Input parameters
+## 输入参数
 
 - `filter_name`: Filter class name
 - `filter_type`: Filter type (`auth`, `rate_limit`, `input_validation`)
 - `reject_status`: HTTP status code when rejected (default `401`)
 
-## Output
+## 输出
 
-1. Filter class header file (extending `HttpFilter<ClassName, false>`)
-2. `doFilter()` implementation (correctly using `fcb` + `fccb`)
-3. `registerFilter()` registration code
+1. Filter 类头文件（继承 `HttpFilter<ClassName, false>`）
+2. `doFilter()` 实现（正确使用 `fcb` + `fccb`）
+3. `registerFilter()` 注册代码
 
-## Example
+## 示例
 
 ```
 /drogon-gen-filter filter_name=AuthFilter filter_type=auth
 ```
 
-Generates an authentication interceptor Filter.
+生成认证拦截 Filter。
