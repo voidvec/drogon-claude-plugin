@@ -7,14 +7,21 @@ import json
 import os
 import re
 import sys
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 # ---------------------------------------------------------------------------
-# Violation database — (regex, message) keyed by file category
+# Violation database — each entry is (regex, message) or (regex, message, flags).
+# Per-pattern flags default to 0 (case-sensitive). Only set re.IGNORECASE when
+# the pattern is genuinely case-insensitive (e.g. CSP tags). C++ identifiers
+# (done(), ASSERT_*, createDbClient, ...) MUST stay case-sensitive to avoid
+# false positives like isDone() / task.done().
 # ---------------------------------------------------------------------------
+
+# Type alias: 2-tuple (pattern, message) or 3-tuple (pattern, message, flags)
+Violation = Union[Tuple[str, str], Tuple[str, str, int]]
 
 # C++ source files (.h, .cc, .cpp, .cxx, .hpp)
-CPP_VIOLATIONS: List[Tuple[str, str]] = [
+CPP_VIOLATIONS: List[Violation] = [
     # Nonexistent macros
     (r'\bFILTER_ADD\b',
      'FILTER_ADD macro does not exist. Use app().registerFilter(std::make_shared<YourFilter>()) instead.'),
@@ -22,17 +29,42 @@ CPP_VIOLATIONS: List[Tuple[str, str]] = [
      'ADD_MIDDLEWARE macro does not exist. Use app().registerMiddleware(std::make_shared<YourMiddleware>()) instead.'),
     (r'\bMETHOD_LIST_ADD\b',
      'METHOD_LIST_ADD does not exist. WebSocket controllers use WS_PATH_ADD(path, ...).'),
-    # Deprecated APIs
+    # Deprecated APIs (case-sensitive: createDbClient is the real spelling)
     (r'\bcreateDbClient\b',
      'createDbClient() is deprecated. Use addDbClient() instead (HttpAppFramework.h).'),
-    # Handler callback safety heuristics
-    (r'std::function\s*<\s*void\s*\(\s*const\s+HttpResponsePtr\s*[&*]\s*\)\s*>\s*(?!.*\bcallback\b)',
-     'HttpResponse callback parameter detected but "callback" not found nearby — '
-     'ensure every code path calls the callback exactly once (A.1 rule).'),
+    # Coroutine misuse (P group) — AsyncTask that co_awaits without try/catch risks
+    # std::terminate on uncaught exception. Best-effort: AsyncTask followed (within ~200 chars,
+    # across newlines) by co_await. Single-line signature matching is unreliable for coroutines,
+    # so this stays advisory. Task<HttpResponsePtr> is intentionally NOT flagged (framework-safe).
+    (r'\bAsyncTask\b(?:(?!\btry\b).){0,200}?\bco_await\b',
+     'AsyncTask with co_await: wrap the body in try/catch — uncaught exception calls '
+     'std::terminate. Prefer Task<HttpResponsePtr> (framework handles response+exceptions). '
+     'See drogon-gen-coroutine-handler skill.', re.DOTALL),
+    (r'class\s+\w+\s*:\s*public\s+HttpMiddleware\s*<\s*\w+\s*,\s*false\s*>[^}]*\bco_await\b',
+     'co_await inside a callback-style HttpMiddleware. Coroutine middleware must derive from '
+     'HttpCoroMiddleware<T, false>, not HttpMiddleware<T, false> (HttpMiddleware.h:111). See drogon-gen-coroutine-handler skill.'),
+    # HttpClient sync sendRequest deadlock (Q group)
+    # Matches the 2-arg sync overload client->sendRequest(req) / sendRequest(req, timeout)
+    # (no callback parameter) — has a deadlock assert when called from the loop thread.
+    (r'->\s*sendRequest\s*\(\s*[^,)]+(?:,\s*[\d.]+\s*)?\)',
+     'HttpClient synchronous sendRequest(req [, timeout]) has a deadlock assert and must NOT be '
+     'called in the event-loop thread / handler. Use the async overload sendRequest(req, callback) '
+     'or sendRequestCoro() (HttpClient.h:133). See drogon-gen-http-client skill.'),
+    # Session naked subscript (M group) — matches req->session()->operator[](...) and
+    # session(Ptr)->operator[](...). Variable names vary, so anchor on session.
+    (r'session\b\w*(?:\s*\)|\s*)*->\s*operator\s*\[\s*\]|->\s*session\s*\(\s*\)\s*->\s*operator\s*\[\s*\]',
+     'session->operator[] returns std::any& and needs any_cast — error-prone. '
+     'Use getOptional<T>() or modify<T>() instead (Session.h). See drogon-gen-session-auth skill.'),
+    # Advice registered inside handler (O group) — case-sensitive C++ identifiers
+    (r'\bregister(SyncAdvice|PreRoutingAdvice|PostRoutingAdvice|PreHandlingAdvice|'
+     r'PostHandlingAdvice|PreSendingAdvice|BeginningAdvice|NewConnectionAdvice|'
+     r'HttpResponseCreationAdvice|SessionStartAdvice|SessionDestroyAdvice)\s*\(',
+     'Advice must be registered before app().run(), never dynamically inside a handler. '
+     'See drogon-gen-advice skill (HttpAppFramework.h:273-441, 920-928).'),
 ]
 
-# CSP template files (.csp)
-CSP_VIOLATIONS: List[Tuple[str, str]] = [
+# CSP template files (.csp) — genuinely case-insensitive patterns keep IGNORECASE
+CSP_VIOLATIONS: List[Violation] = [
     (r'\{\{.*\}\}',
      '{{ }} is Jinja2/Mustache syntax, not supported by drogon CSP. Use [[ key ]] for inline output.'),
     (r'<%raw%>|<\/%raw%>',
@@ -49,19 +81,23 @@ CSP_VIOLATIONS: List[Tuple[str, str]] = [
      'Use <%c++ %> blocks for control flow. (Single-value {% key %} is valid for interpolation.)'),
 ]
 
-# Config files (config.json, config.yaml, config.yml)
-CONFIG_VIOLATIONS: List[Tuple[str, str]] = [
+# Config files (config.json, config.yaml, config.yml) — JSON/YAML keys are case-sensitive
+CONFIG_VIOLATIONS: List[Violation] = [
     (r'"password"\s*:',
      '"password" key found — drogon uses "passwd" for database password in config. '
      'Change to "passwd". (See ConfigLoader.cc)'),
     (r'"username"\s*:',
      '"username" key found — drogon uses "user" for database user in config. '
      'Change to "user". (See ConfigLoader.cc)'),
+    # ssl must be boolean true/false, not a string
+    (r'"ssl"\s*:\s*"[^"]*"',
+     '"ssl" must be a boolean (true/false), not a string. See drogon-setup-config skill.'),
 ]
 
 # Test files (*test*.cc, *test*.cpp, files in test/ or tests/)
-TEST_VIOLATIONS: List[Tuple[str, str]] = [
-    (r'\bdone\(\)',
+# C++ identifiers — case-sensitive to avoid isDone() / task.done() false positives (review §4.2)
+TEST_VIOLATIONS: List[Violation] = [
+    (r'\bdone\s*\(\s*\)',
      'done() callback does not exist in DROGON_TEST. Use CHECK/REQUIRE/MANDATE assertions '
      'inside async callbacks, or queueInLoop() for event-loop scheduling.'),
     (r'\bASSERT_(EQ|NE|TRUE|FALSE|STREQ|STRNE|THROW|NO_THROW)\b',
@@ -108,12 +144,19 @@ def file_category(file_path: str) -> Optional[str]:
     return None
 
 
-def scan_text(text: str, violations: List[Tuple[str, str]]) -> List[str]:
-    """Scan text against a list of (pattern, message) pairs. Returns matched messages."""
+def scan_text(text: str, violations: List[Violation]) -> List[str]:
+    """Scan text against a list of violation entries.
+
+    Each entry is (pattern, message) or (pattern, message, flags). Flags default
+    to 0 (case-sensitive); only patterns that opt in carry re.IGNORECASE.
+    """
     matches = []
-    for pattern, message in violations:
+    for entry in violations:
+        pattern = entry[0]
+        message = entry[1]
+        flags = entry[2] if len(entry) > 2 else 0
         try:
-            if re.search(pattern, text, re.IGNORECASE):
+            if re.search(pattern, text, flags):
                 matches.append(message)
         except re.error:
             pass

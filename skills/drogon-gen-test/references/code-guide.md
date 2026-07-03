@@ -24,6 +24,14 @@ Extract from user input:
 | Specific type | `CHECK_THROWS_AS(expr, T)` | `REQUIRE_THROWS_AS(expr, T)` | `MANDATE_THROWS_AS(expr, T)` |
 | Unconditional fail | `FAIL(msg)` / `FAULT(msg)` | — | — |
 | Compile-time | `STATIC_REQUIRE(expr)` | — | — |
+| Nested sub-test | `SUBSECTION("name"){...}` / `SUBTEST("name"){...}` | — | — |
+| Explicit success | `SUCCESS()` | — | — |
+
+## 测试组织约定
+
+- **目录约定**：测试用例放 `tests/` 目录（源文件用 `.cc`）。
+- **CMake 扫描**：在 `CMakeLists.txt` 中 `include(ParseAndAddDrogonTests.cmake)` 后调用 `ParseAndAddDrogonTests(${PROJECT_NAME})`，该脚本递归扫描 `tests/` 下含 `DROGON_TEST` 宏的 `.cc` 文件并自动注册为单独的测试目标——**无需手写 `add_test`**。
+- **自动注册**：每个 `DROGON_TEST(MyTest)` 宏生成一个 `DrObject` 子类，框架通过 `DrClassMap` 在静态初始化期自动登记，`drogon::test::run()` 时枚举执行。
 
 ## Code generation
 

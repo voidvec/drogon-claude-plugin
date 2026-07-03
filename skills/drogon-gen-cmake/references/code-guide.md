@@ -50,6 +50,13 @@ endif()
 1. 将模板中的 `${project_name}`、`${cxx_standard}`、`${enable_orm}` 等变量替换为实际值
 2. 生成 `CMakeLists.txt` 文件到项目根目录
 
+## 构建纪律（禁止项）
+
+- **依赖发现**：用 `find_package(drogon REQUIRED)` + `target_link_libraries(... drogon::drogon)`。**禁止**手动 `include_directories()`（头文件路径经 INTERFACE_INCLUDE_DIRECTORIES 自动传递），**禁止**链接 `libdrogon.a`（硬编码路径不可移植）。
+- **ORM 集成**：用 ORM 时显式 `target_link_libraries(... drogon::drogon drogon::orm_lib)`。**禁止**假设 `drogon::drogon` 已含 ORM（可能编译时禁用），**禁止**链接 `libdrogon_orm.a`。
+- **Conan 安装**：通过 Conan 安装时用 `conan_basic_setup()` 生成的 `drogon_CONAN_TARGETS`；手动编译时检查 `BUILD_ORM` 等选项。**禁止**硬编码 drogon 安装路径（如 `/usr/local/include/drogon`），**禁止**假设特定安装方式。
+- **插件/过滤器编译**：用户写的 `HttpPlugin` / `HttpFilter` 需链接 `drogon::drogon`，头文件用 `#include <drogon/HttpController.h>` 形式。**禁止**遗漏 `drogon::drogon` 依赖，**禁止**误用 `target_include_directories()`（头文件已由 `drogon::drogon` 传递）。
+
 ## 错误处理
 
 - `project_name` 为空：返回错误消息

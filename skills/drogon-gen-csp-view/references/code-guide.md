@@ -13,11 +13,32 @@ Extract from user input:
 | Syntax | Location | Meaning |
 |--------|----------|---------|
 | `<%c++ ... %>` | Anywhere | C++ code block |
-| `@@` | Inside `<%c++ %>` only | HttpViewData reference |
+| `@@` | Inside `<%c++ %>` only | HttpViewData reference；两种用法：`@@.get<T>("key")` 取值，`@@["key"]` 下标取 `std::any` |
 | `$$` | Inside `<%c++ %>` only | Output stream |
 | `[[ key ]]` | Outside `<%c++ %>` | Inline variable output |
 | `{% key %}` | Anywhere | Alias for `[[ key ]]` |
 | `<%layout name %>` | .csp file header | Parent layout |
+| `<%view name %>` | Anywhere | Include a sub-view (传入 HttpViewData) |
+| `<%inc #include "file" %>` | Anywhere | Insert code (C preprocessor-style include) |
+
+## `drogon_ctl create view` 编译管线
+
+CSP 视图的完整流程（用户须知晓）：
+- **输入**：手写的 `.csp` 文件
+- **输出**：`drogon_ctl create view <Name>.csp` 生成 `<Name>.h` + `<Name>.cc` 两个 C++ 源文件（编译进二进制，运行期不再解析 CSP）
+- **参数**：`-o <dir>` 指定输出目录，`-n <namespace>` 指定命名空间
+- viewName 在 `newHttpViewResponse("Name", data)` 中**不带 `.csp` 后缀**
+
+## HttpViewData API 要点
+
+- `insert(key, any)` / `operator[]` 写入；`get<T>(key)` 取值。
+- `insertAsString(key, str)`：以字符串类型插入（区别于 `insert` 的 `std::any`）。
+- **键名大小写敏感**：`data["UserId"]` 与 `data["userid"]` 是两个键，CSP 里 `[[ UserId ]]` 必须大小写完全匹配。
+- `htmlTranslate(str)`：手动 HTML 转义（CSP 无自动转义，见下）。
+
+## Handler 纪律
+
+- **禁止在 handler 里手工拼接 HTML 字符串返回**：HTML 页面必须通过 CSP 视图（`newHttpViewResponse`）渲染。手工拼 HTML 易出 XSS 且无法复用布局。
 
 ## Forbidden syntax
 
