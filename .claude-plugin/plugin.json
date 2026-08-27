@@ -3,11 +3,11 @@
   "version": "0.3.0",
   "description": "Drogon C++ 后端开发规则与技能: 基于 Drogon 框架编写正确的异步代码, 避开回调/事件循环等高频陷阱。",
   "author": {
-    "name": "lucaswang420"
+    "name": "voidvec"
   },
   "license": "MIT",
-  "repository": "https://github.com/lucaswang420/drogon-claude-plugin",
-  "homepage": "https://github.com/lucaswang420/drogon-claude-plugin#readme",
+  "repository": "https://github.com/voidvec/drogon-claude-plugin",
+  "homepage": "https://github.com/voidvec/drogon-claude-plugin#readme",
   "keywords": [
     "drogon",
     "cpp",
