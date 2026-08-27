@@ -1,0 +1,41 @@
+{
+  "name": "drogon-claude-plugin",
+  "version": "0.3.0",
+  "description": "Drogon C++ backend Claude Code plugin - rules & code generation skills, plus a CLI installer (install/verify/uninstall)",
+  "type": "module",
+  "bin": {
+    "drogon-plugin": "bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "assets/",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "node ../scripts/sync-assets.mjs",
+    "test": "node ../scripts/dev-smoke-test.mjs"
+  },
+  "keywords": [
+    "drogon",
+    "claude-code",
+    "claude",
+    "plugin",
+    "cpp",
+    "c++",
+    "async",
+    "web-framework",
+    "backend"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voidvec/drogon-claude-plugin.git"
+  },
+  "homepage": "https://github.com/voidvec/drogon-claude-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/voidvec/drogon-claude-plugin/issues"
+  }
+}
