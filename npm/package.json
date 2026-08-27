@@ -1,6 +1,6 @@
 {
   "name": "drogon-claude-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Drogon C++ backend Claude Code plugin - rules & code generation skills, plus a CLI installer (install/verify/uninstall)",
   "type": "module",
   "bin": {
