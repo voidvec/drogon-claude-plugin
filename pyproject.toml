@@ -39,3 +39,7 @@ drogon-plugin = "drogon_plugin.cli:main"
 package-dir = { "" = "src" }
 packages = ["drogon_plugin"]
 include-package-data = true
+
+[tool.setuptools.package-data]
+# 随包携带的插件资产（skills/hooks/.claude-plugin/CLAUDE.md），由 scripts/sync-assets.py 生成
+drogon_plugin = ["drogon_plugin_assets/**/*"]

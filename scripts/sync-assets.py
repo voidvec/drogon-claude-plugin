@@ -19,6 +19,16 @@ ASSETS = ("skills", "hooks", ".claude-plugin")
 FILES = ("CLAUDE.md",)
 DEST = REPO_ROOT / "src" / "drogon_plugin" / "drogon_plugin_assets"
 
+# 需要排除的中间产物目录（如 Python 字节码缓存）
+IGNORE_DIRS = {"__pycache__"}
+
+
+def _iter_files(root: Path):
+    """递归列出 root 下所有文件，排除 IGNORE_DIRS。"""
+    for file in root.rglob("*"):
+        if file.is_file() and not any(part in IGNORE_DIRS for part in file.parts):
+            yield file
+
 
 def sync() -> int:
     dest_assets = DEST
@@ -30,8 +40,12 @@ def sync() -> int:
     for name in ASSETS:
         src = REPO_ROOT / name
         if src.is_dir():
-            shutil.copytree(src, dest_assets / name)
-            count += sum(1 for _ in src.rglob("*") if _.is_file())
+            # 逐文件复制并跳过忽略目录（copytree 的 ignore 回调）
+            def _ignore(dir_path, names, _src=src):
+                return [n for n in names if n in IGNORE_DIRS]
+
+            shutil.copytree(src, dest_assets / name, ignore=_ignore)
+            count += sum(1 for _ in _iter_files(src))
     for name in ("CLAUDE.md",):
         src = REPO_ROOT / name
         if src.is_file():
@@ -47,8 +61,8 @@ def check() -> bool:
         dst = DEST / name
         if not dst.is_dir():
             return False
-        src_files = sorted(p for p in src.rglob("*") if p.is_file())
-        dst_files = sorted(p for p in dst.rglob("*") if p.is_file())
+        src_files = sorted(_iter_files(src))
+        dst_files = sorted(_iter_files(dst))
         if len(src_files) != len(dst_files):
             return False
         for s, d in zip(src_files, dst_files):

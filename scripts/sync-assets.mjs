@@ -14,9 +14,13 @@ const ASSETS = ['skills', 'hooks', '.claude-plugin']
 const FILES = ['CLAUDE.md']
 const DEST = path.join(REPO_ROOT, 'npm', 'assets')
 
+// 需要排除的中间产物目录（如 Python 字节码缓存）
+const IGNORE_DIRS = new Set(['__pycache__'])
+
 function collect(root) {
   const out = []
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (entry.isDirectory() && IGNORE_DIRS.has(entry.name)) continue
     const full = path.join(root, entry.name)
     if (entry.isDirectory()) out.push(...collect(full))
     else out.push(full)
