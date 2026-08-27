@@ -56,6 +56,7 @@ jobs:
 
       - name: Build + install PyPI CLI in a venv
         run: |
+          python scripts/sync-assets.py
           python -m build
           pip install dist/*.whl
 
