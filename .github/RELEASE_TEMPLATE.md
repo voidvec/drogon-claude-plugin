@@ -10,7 +10,7 @@
 
 ```bash
 pipx install drogon-claude-plugin   # 或 pip install
-drogon-plugin install
+drogon-claude-plugin install
 ```
 
 依赖内置资产（17 技能 + 2 hooks + CLAUDE.md）。
@@ -19,7 +19,7 @@ drogon-plugin install
 
 ```bash
 npx drogon-claude-plugin install
-# 或全局: npm i -g drogon-claude-plugin && drogon-plugin install
+# 或全局: npm i -g drogon-claude-plugin && drogon-claude-plugin install
 ```
 
 ### Claude Code marketplace

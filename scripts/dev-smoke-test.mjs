@@ -16,11 +16,11 @@ const EXE = path.resolve(
   process.cwd(),
   'node_modules',
   '.bin',
-  process.platform === 'win32' ? 'drogon-plugin.cmd' : 'drogon-plugin'
+  process.platform === 'win32' ? 'drogon-claude-plugin.cmd' : 'drogon-claude-plugin'
 )
 
 function run(args, opts = {}) {
-  const bin = fs.existsSync(EXE) ? EXE : 'drogon-plugin'
+  const bin = fs.existsSync(EXE) ? EXE : 'drogon-claude-plugin'
   const r = (() => {
     try {
       return execFileSync(bin, args, {

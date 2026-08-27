@@ -32,12 +32,12 @@ def main() -> int:
     target.mkdir()
 
     # version
-    rc, _ = run(["drogon-plugin", "version"])
+    rc, _ = run(["drogon-claude-plugin", "version"])
     if rc != 0:
         return 1
 
     # install
-    rc, _ = run(["drogon-plugin", "install", "--target", str(target)])
+    rc, _ = run(["drogon-claude-plugin", "install", "--target", str(target)])
     if rc != 0:
         return 1
     for rel in (".claude-plugin/plugin.json", "CLAUDE.md", "hooks/posttooluse.py"):
@@ -49,13 +49,13 @@ def main() -> int:
         return 1
 
     # verify
-    rc, out = run(["drogon-plugin", "verify", "--target", str(target)])
+    rc, out = run(["drogon-claude-plugin", "verify", "--target", str(target)])
     if rc != 0 or "✅ 通过" not in out:
         print("❌ verify 未通过")
         return 1
 
     # uninstall
-    rc, _ = run(["drogon-plugin", "uninstall", "--target", str(target)])
+    rc, _ = run(["drogon-claude-plugin", "uninstall", "--target", str(target)])
     if rc != 0 or (target / "skills").exists():
         print("❌ uninstall 未清空")
         return 1

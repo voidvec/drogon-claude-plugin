@@ -37,7 +37,7 @@
 
 ```bash
 # 插件结构校验（CI 同款）
-drogon-plugin verify        # 或 npm 包: npx drogon-claude-plugin verify
+drogon-claude-plugin verify        # 或 npm 包: npx drogon-claude-plugin verify
 
 # 冒烟测试
 python scripts/dev-smoke-test.py

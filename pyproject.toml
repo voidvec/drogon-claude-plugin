@@ -33,7 +33,7 @@ Documentation = "https://github.com/voidvec/drogon-claude-plugin#readme"
 Changelog = "https://github.com/voidvec/drogon-claude-plugin/blob/main/CHANGELOG.md"
 
 [project.scripts]
-drogon-plugin = "drogon_plugin.cli:main"
+drogon-claude-plugin = "drogon_plugin.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

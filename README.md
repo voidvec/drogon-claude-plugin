@@ -26,16 +26,18 @@ claude plugin update drogon
 
 ### 方式 B：通过 npm / PyPI（CLI 安装器）
 
+npm 与 PyPI 两种包**内置同一份插件资产**，bin 名均为 `drogon-claude-plugin`，提供 `install` / `verify` / `uninstall` / `version` 子命令。无需提前克隆本仓库。
+
 ```bash
-# npm
+# npm（免安装，直接跑）
 npx drogon-claude-plugin install
 
-# 或 PyPI
+# 或 PyPI（推荐，可持久使用）
 pipx install drogon-claude-plugin
-drogon-plugin install
+drogon-claude-plugin install
 ```
 
-> 两种包共用同一份插件资产，CLI 提供 `install` / `verify` / `uninstall` 子命令，详见 [CLI 安装器](#--cli-安装器)。
+> 安装器只负责**分发与落盘**，不替换 Claude Code 官方插件机制——启用插件仍走 `claude plugin install`（安装器会在安装成功后提示你执行）。
 
 ### 方式 C：本地安装
 
@@ -55,18 +57,35 @@ claude plugin details drogon
 
 ## CLI 安装器
 
-`drogon-claude-plugin` 同时发布到 [npm](https://www.npmjs.com/package/drogon-claude-plugin) 与 [PyPI](https://pypi.org/project/drogon-claude-plugin/)，两种包内置同一份插件资产（skills / hooks / CLAUDE.md / .claude-plugin），并提供一致的命令行界面（bin 名均为 `drogon-plugin`）：
+`drogon-claude-plugin` 同时发布到 [npm](https://www.npmjs.com/package/drogon-claude-plugin) 与 [PyPI](https://pypi.org/project/drogon-claude-plugin/)。两种包都内置**同一份插件资产**（skills / hooks / CLAUDE.md / .claude-plugin），并提供一致的命令行界面：
 
 | 命令 | 作用 |
 |------|------|
-| `drogon-plugin install [--scope project\|user\|local]` | 将插件资产拷贝到当前项目（或指定 scope），并提示执行 `claude plugin install` 启用 |
-| `drogon-plugin verify` | 校验插件的技能数 / 钩子 / manifest，输出结构报告 |
-| `drogon-plugin uninstall` | 从当前项目（或由 `--target` 指定目录）移除已安装的插件资产 |
-| `drogon-plugin version` | 显示 CLI 与内置插件版本 |
+| `drogon-claude-plugin install [--scope project\|user\|local]` | 将插件资产拷贝到当前项目（或指定 scope），并提示执行 `claude plugin install` 启用 |
+| `drogon-claude-plugin verify` | 校验插件的技能数 / 钩子 / manifest，输出结构报告 |
+| `drogon-claude-plugin uninstall` | 从当前项目（或由 `--target` 指定目录）移除已安装的插件资产 |
+| `drogon-claude-plugin version` | 显示 CLI 与内置插件版本 |
 
-安装器只负责**分发与落盘**，不替换 Claude Code 官方插件机制——启用插件仍走 `claude plugin install`。
+### CLI 的典型用法
+
+```bash
+# 在 drogon 项目根目录执行
+npx drogon-claude-plugin install     # npm 免安装方式
+drogon-claude-plugin install                # 已安装 pipx/npm -g 后
+
+drogon-claude-plugin verify                 # 确认 17 技能 + 2 钩子全部到位
+drogon-claude-plugin uninstall              # 移除插件资产（不会动你的代码）
+```
 
 ## 功能组件
+
+插件由三层组成，各司其职：
+
+| 层 | 位置 | 作用 |
+|----|------|------|
+| **规则层** | `CLAUDE.md` | 每次会话自动注入的顶层纪律（异步回调、事件循环模型） |
+| **技能层** | `skills/`（17 个） | 按需调用的 drogon 代码生成 / 配置技能，含 `references/code-guide.md` 深度知识 |
+| **检测层** | `hooks/`（2 个） | AI 编辑文件后自动扫描 drogon API 违规，即时提示修正 |
 
 ### 规则层（CLAUDE.md，自动注入会话上下文）
 
@@ -148,13 +167,16 @@ AI: [对照 CLAUDE.md 异步回调纪律] 这个 handler 的提前返回路径�
 ├── .github/workflows/
 │   ├── ci.yml              # 插件结构/CLI 冒烟测试
 │   └── publish.yml         # tag 触发 → PyPI + npm + GitHub Release
+├── scripts/                  # 构建辅助（资产同步 + 冒烟测试）
+│   ├── sync-assets.py/.mjs   # 同步 skills/hooks/CLAUDE.md 到 npm 与 PyPI 包
+│   └── dev-smoke-test.py/.mjs
 ├── hooks/
 │   ├── hooks.json
 │   └── posttooluse.py
-├── src/drogon_plugin/      # PyPI 包（CLI 安装器）
+├── src/drogon_plugin/        # PyPI 包（CLI 安装器）
 │   ├── __init__.py
 │   └── cli.py
-├── npm/                    # npm 包（CLI 安装器）
+├── npm/                      # npm 包（CLI 安装器）
 │   ├── package.json
 │   └── bin/cli.js
 ├── skills/

@@ -62,12 +62,12 @@ jobs:
 
       - name: PyPI CLI smoke — install/verify/uninstall into temp project
         run: |
-          drogon-plugin version
-          drogon-plugin install --target /tmp/target_a
-          drogon-plugin verify --target /tmp/target_a
+          drogon-claude-plugin version
+          drogon-claude-plugin install --target /tmp/target_a
+          drogon-claude-plugin verify --target /tmp/target_a
           test -f /tmp/target_a/.claude-plugin/plugin.json
           test -d /tmp/target_a/skills/drogon-create-controller
-          drogon-plugin uninstall --target /tmp/target_a
+          drogon-claude-plugin uninstall --target /tmp/target_a
           test ! -e /tmp/target_a/skills
           echo "PyPI CLI OK"
 
@@ -84,11 +84,11 @@ jobs:
           npm init -y >/dev/null
           npm install /tmp/drogon-claude-plugin-*.tgz
           mkdir -p /tmp/target_b
-          npx drogon-plugin install --target /tmp/target_b
-          npx drogon-plugin verify --target /tmp/target_b
+          npx drogon-claude-plugin install --target /tmp/target_b
+          npx drogon-claude-plugin verify --target /tmp/target_b
           test -f /tmp/target_b/.claude-plugin/plugin.json
           test -d /tmp/target_b/skills
-          npx drogon-plugin uninstall --target /tmp/target_b
+          npx drogon-claude-plugin uninstall --target /tmp/target_b
           test ! -e /tmp/target_b/skills
           echo "npm smoke OK"
 

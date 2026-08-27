@@ -7,8 +7,8 @@
 ## [Unreleased]
 
 ### Added
-- PyPI 发行包（`drogon-claude-plugin`，CLI 命令 `drogon-plugin`）：`install` / `verify` / `uninstall` / `version`
-- npm 发行包（`drogon-claude-plugin`，bin 名 `drogon-plugin`）：与 PyPI 同构的 CLI
+- PyPI 发行包（`drogon-claude-plugin`，CLI 命令 `drogon-claude-plugin`）：`install` / `verify` / `uninstall` / `version`
+- npm 发行包（`drogon-claude-plugin`，bin 名 `drogon-claude-plugin`）：与 PyPI 同构的 CLI
 - 插件资产（skills / hooks / CLAUDE.md / .claude-plugin）双端打包进发行包，实现一条命令安装
 - GitHub Actions 流水线：`ci.yml`（结构校验 + 双端 CLI 冒烟测试）、`publish.yml`（tag 触发 → PyPI + npm + Release）
 - 仓库基建：`.gitignore`、`CONTRIBUTING.md`、`CHANGELOG.md`

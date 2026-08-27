@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""drogon-plugin — CLI 安装器（PyPI 发行版）.
+"""drogon-claude-plugin — CLI 安装器（PyPI 发行版）.
 
 把随包内置的 drogon Claude Code 插件资产安装到目标项目并提示启用，
 或对已安装目录做结构校验 / 卸载。
@@ -122,7 +122,7 @@ def cmd_install(args) -> int:
         print(f"❌ {e}", file=sys.stderr)
         return 1
 
-    stamp = target / ".drogon-plugin-installed.json"
+    stamp = target / ".drogon-claude-plugin-installed.json"
     try:
         manifest_version = _plugin_version(target)
     except FileNotFoundError:
@@ -235,10 +235,10 @@ def cmd_uninstall(args) -> int:
         elif p.is_file():
             p.unlink()
             removed.append(name)
-    stamp = target / ".drogon-plugin-installed.json"
+    stamp = target / ".drogon-claude-plugin-installed.json"
     if stamp.is_file():
         stamp.unlink()
-        removed.append(".drogon-plugin-installed.json")
+        removed.append(".drogon-claude-plugin-installed.json")
 
     if removed:
         print(f"🗑  已从 {target} 移除: {', '.join(removed)}")
@@ -263,7 +263,7 @@ def cmd_version(args) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="drogon-plugin",
+        prog="drogon-claude-plugin",
         description="安装 / 校验 / 卸载 drogon Claude Code 插件资产（PyPI 发行版）。",
     )
     sub = parser.add_subparsers(dest="command", required=True)

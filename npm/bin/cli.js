@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * drogon-plugin — CLI 安装器 (npm 发行版).
+ * drogon-claude-plugin — CLI 安装器 (npm 发行版).
  * 把随包 assets/ 内的 drogon 插件资产安装到目标项目，或校验 / 卸载。
  *
  * 子命令:
@@ -104,7 +104,7 @@ function cmdInstall(args) {
     const count = copyAssets(src, target)
     const manifest = loadManifest(target)
 
-    const stamp = path.join(target, '.drogon-plugin-installed.json')
+    const stamp = path.join(target, '.drogon-claude-plugin-installed.json')
     fs.writeFileSync(
       stamp,
       JSON.stringify(
@@ -207,10 +207,10 @@ function cmdUninstall(args) {
       removed.push(name)
     }
   }
-  const stamp = path.join(target, '.drogon-plugin-installed.json')
+  const stamp = path.join(target, '.drogon-claude-plugin-installed.json')
   if (fs.existsSync(stamp)) {
     fs.rmSync(stamp, { force: true })
-    removed.push('.drogon-plugin-installed.json')
+    removed.push('.drogon-claude-plugin-installed.json')
   }
   if (removed.length) console.log(`🗑  已从 ${target} 移除: ${removed.join(', ')}`)
   else console.log(`ℹ️   未在 ${target} 发现插件资产`)
@@ -233,13 +233,13 @@ function cmdVersion() {
 
 // ---------------------------------------------------------------------------
 
-const HELP = `drogon-plugin — drogon Claude Code 插件安装器 (npm)
+const HELP = `drogon-claude-plugin — drogon Claude Code 插件安装器 (npm)
 
 用法:
-  drogon-plugin install   [--target DIR] [--scope project|user|local]
-  drogon-plugin verify    [--target DIR]
-  drogon-plugin uninstall [--target DIR]
-  drogon-plugin version
+  drogon-claude-plugin install   [--target DIR] [--scope project|user|local]
+  drogon-claude-plugin verify    [--target DIR]
+  drogon-claude-plugin uninstall [--target DIR]
+  drogon-claude-plugin version
 `
 
 function main() {

@@ -16,13 +16,13 @@ npx drogon-claude-plugin install
 
 ```bash
 # 把插件资产拷贝到当前项目并提示启用
-drogon-plugin install
+drogon-claude-plugin install
 
 # 校验已安装的插件结构（技能数 / 钩子 / 清单）
-drogon-plugin verify
+drogon-claude-plugin verify
 
 # 卸载
-drogon-plugin uninstall
+drogon-claude-plugin uninstall
 ```
 
 启用插件（Claude Code marketplace 方式）：
