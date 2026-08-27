@@ -1,16 +1,21 @@
 # drogon-claude-plugin
 
-Claude Code 插件，为基于 [Drogon](https://github.com/drogonframework/drogon) C++ HTTP 框架的应用项目提供 **AI 辅助开发规则与代码生成技能**。
+> **Drogon C++ 后端开发的 Claude Code 插件** — 提供 AI 辅助开发规则与代码生成技能，让 AI 写出正确的异步代码，避开回调/事件循环等高频陷阱。
 
-让 AI 写出正确的异步代码，避开回调/事件循环等高频陷阱。
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/drogon-claude-plugin.svg)](https://pypi.org/project/drogon-claude-plugin/)
+[![npm version](https://img.shields.io/npm/v/drogon-claude-plugin.svg)](https://www.npmjs.com/package/drogon-claude-plugin)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://docs.anthropic.com/en/docs/claude-code/plugins)
+
+基于 [Drogon](https://github.com/drogonframework/drogon) C++ HTTP 框架的应用项目提供 **AI 辅助开发规则与代码生成技能**，让 AI 写出正确的异步代码，避开回调/事件循环等高频陷阱。
 
 ## 安装
 
-### 方式 1：通过 marketplace（推荐）
+### 方式 A：通过 marketplace（推荐）
 
 ```bash
 # 添加 marketplace 源（首次）
-claude plugin marketplace add https://github.com/lucaswang420/drogon-claude-plugin
+claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin
 
 # 安装插件
 claude plugin install drogon
@@ -19,10 +24,23 @@ claude plugin install drogon
 claude plugin update drogon
 ```
 
-### 方式 2：本地安装
+### 方式 B：通过 npm / PyPI（CLI 安装器）
 
 ```bash
-git clone https://github.com/lucaswang420/drogon-claude-plugin
+# npm
+npx drogon-claude-plugin install
+
+# 或 PyPI
+pipx install drogon-claude-plugin
+drogon-plugin install
+```
+
+> 两种包共用同一份插件资产，CLI 提供 `install` / `verify` / `uninstall` 子命令，详见 [CLI 安装器](#--cli-安装器)。
+
+### 方式 C：本地安装
+
+```bash
+git clone https://github.com/voidvec/drogon-claude-plugin
 cd <你的 drogon 项目>
 claude plugin install ../drogon-claude-plugin --scope project
 ```
@@ -34,6 +52,19 @@ claude plugin details drogon
 ```
 
 应显示 17 个技能和 2 个钩子（SessionStart + PostToolUse）。
+
+## CLI 安装器
+
+`drogon-claude-plugin` 同时发布到 [npm](https://www.npmjs.com/package/drogon-claude-plugin) 与 [PyPI](https://pypi.org/project/drogon-claude-plugin/)，两种包内置同一份插件资产（skills / hooks / CLAUDE.md / .claude-plugin），并提供一致的命令行界面（bin 名均为 `drogon-plugin`）：
+
+| 命令 | 作用 |
+|------|------|
+| `drogon-plugin install [--scope project\|user\|local]` | 将插件资产拷贝到当前项目（或指定 scope），并提示执行 `claude plugin install` 启用 |
+| `drogon-plugin verify` | 校验插件的技能数 / 钩子 / manifest，输出结构报告 |
+| `drogon-plugin uninstall` | 从当前项目（或由 `--target` 指定目录）移除已安装的插件资产 |
+| `drogon-plugin version` | 显示 CLI 与内置插件版本 |
+
+安装器只负责**分发与落盘**，不替换 Claude Code 官方插件机制——启用插件仍走 `claude plugin install`。
 
 ## 功能组件
 
@@ -114,9 +145,18 @@ AI: [对照 CLAUDE.md 异步回调纪律] 这个 handler 的提前返回路径�
 ├── .claude-plugin/
 │   ├── plugin.json
 │   └── marketplace.json
+├── .github/workflows/
+│   ├── ci.yml              # 插件结构/CLI 冒烟测试
+│   └── publish.yml         # tag 触发 → PyPI + npm + GitHub Release
 ├── hooks/
 │   ├── hooks.json
 │   └── posttooluse.py
+├── src/drogon_plugin/      # PyPI 包（CLI 安装器）
+│   ├── __init__.py
+│   └── cli.py
+├── npm/                    # npm 包（CLI 安装器）
+│   ├── package.json
+│   └── bin/cli.js
 ├── skills/
 │   ├── drogon-create-controller/
 │   ├── drogon-gen-advice/
@@ -137,7 +177,8 @@ AI: [对照 CLAUDE.md 异步回调纪律] 这个 handler 的提前返回路径�
 │   └── drogon-setup-config/
 ├── CLAUDE.md
 ├── LICENSE
-└── README.md
+├── README.md
+└── pyproject.toml           # PyPI 打包配置
 ```
 
 ## 许可

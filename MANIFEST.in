@@ -1,0 +1,2 @@
+# wheel 资产打包清单（assets 由 scripts/sync-assets.py 生成）
+recursive-include src/drogon_plugin/drogon_plugin_assets *

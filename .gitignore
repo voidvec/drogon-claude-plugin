@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+# 构建产物：由 scripts/sync-assets.py 生成
+src/drogon_plugin/drogon_plugin_assets/
+
+# Node
+node_modules/
+npm-debug.log*
+# 构建产物：由 scripts/sync-assets.mjs 生成
+npm/assets/
+
+# Build artifacts
+*.tgz
+
+# Test / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local package installs (for testing)
+/tmp/

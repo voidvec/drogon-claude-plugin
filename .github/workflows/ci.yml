@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  validate-plugin:
+    name: Validate plugin structure & hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate manifests are valid JSON
+        run: |
+          python -c "import json,glob; [json.load(open(f,encoding='utf-8')) for f in glob.glob('.claude-plugin/*.json')+glob.glob('hooks/*.json')]; print('manifests OK')"
+
+      - name: Ensure every skill has SKILL.md
+        run: |
+          import os, sys
+          missing = [d for d in sorted(os.listdir('skills'))
+                     if os.path.isdir(os.path.join('skills', d))
+                     and not os.path.isfile(os.path.join('skills', d, 'SKILL.md'))]
+          if missing:
+              print('skills missing SKILL.md:', missing)
+              sys.exit(1)
+          print(f'{len([d for d in os.listdir("skills") if os.path.isdir(os.path.join("skills", d))])} skills OK')
+        shell: python
+
+      - name: Assert expected skill count (17)
+        run: |
+          test "$(ls -d skills/*/ | wc -l)" -eq 17
+          echo "skill count OK"
+
+      - name: Python syntax check for hook
+        run: python -m py_compile hooks/posttooluse.py
+
+      - name: Hook dry-run on a clean payload
+        run: |
+          echo '{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.cc","content":"int main(){return 0;}"}}' \
+            | python hooks/posttooluse.py | python -c "import json,sys; d=json.load(sys.stdin); assert 'systemMessage' not in d or d['systemMessage']!=''; print('hook OK')"
+
+  smoke-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build & pytest
+        run: pip install build pytest
+
+      - name: Build + install PyPI CLI in a venv
+        run: |
+          python -m build
+          pip install dist/*.whl
+
+      - name: PyPI CLI smoke — install/verify/uninstall into temp project
+        run: |
+          drogon-plugin version
+          drogon-plugin install --target /tmp/target_a
+          drogon-plugin verify --target /tmp/target_a
+          test -f /tmp/target_a/.claude-plugin/plugin.json
+          test -d /tmp/target_a/skills/drogon-create-controller
+          drogon-plugin uninstall --target /tmp/target_a
+          test ! -e /tmp/target_a/skills
+          echo "PyPI CLI OK"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: npm pack + install mock
+        run: |
+          npm pack ./npm --pack-destination /tmp
+          cd /tmp
+          npm init -y >/dev/null
+          npm install /tmp/drogon-claude-plugin-*.tgz
+          mkdir -p /tmp/target_b
+          npx drogon-plugin install --target /tmp/target_b
+          npx drogon-plugin verify --target /tmp/target_b
+          test -f /tmp/target_b/.claude-plugin/plugin.json
+          test -d /tmp/target_b/skills
+          npx drogon-plugin uninstall --target /tmp/target_b
+          test ! -e /tmp/target_b/skills
+          echo "npm smoke OK"
+
+      - name: npm asset-sync check
+        run: node scripts/sync-assets.mjs --check
