@@ -1,41 +1,51 @@
-# drogon-claude-plugin (npm)
+# drogon-claude-plugin
 
-Drogon C++ 后端开发的 **Claude Code 插件** 安装器 —— 一条命令把 17 个代码生成技能、2 个自动化检测钩子与顶层开发纪律装进你的项目。
+> CLI installer for the **Drogon C++ backend Claude Code plugin** — one command drops 17 code-generation skills, 2 automatic detection hooks, and top-level development discipline into your project.
 
-## 安装
+**English** | [简体中文](README.zh-CN.md)
+
+[![npm version](https://img.shields.io/npm/v/drogon-claude-plugin.svg)](https://www.npmjs.com/package/drogon-claude-plugin)
+[![CI](https://github.com/voidvec/drogon-claude-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/voidvec/drogon-claude-plugin/actions/workflows/ci.yml)
+
+The plugin helps [Claude Code](https://docs.anthropic.com/en/docs/claude-code/plugins) write **correct asynchronous
+code** for the [Drogon](https://github.com/drogonframework/drogon) C++ HTTP framework — avoiding classic callback /
+event-loop pitfalls.
+
+## Install
 
 ```bash
-# 全局安装（推荐）
+# Global install (recommended)
 npm install -g drogon-claude-plugin
 
-# 或免安装直跑
+# Or run on the fly — no installation needed
 npx drogon-claude-plugin install
 ```
 
-## 使用
+## Usage
 
 ```bash
-# 把插件资产拷贝到当前项目并提示启用
+# Copy the plugin assets into the current project and prompt to enable
 drogon-claude-plugin install
 
-# 校验已安装的插件结构（技能数 / 钩子 / 清单）
+# Validate the installed structure (skill count / hooks / manifests)
 drogon-claude-plugin verify
 
-# 卸载
+# Remove the installed assets (never touches your code)
 drogon-claude-plugin uninstall
 ```
 
-启用插件（Claude Code marketplace 方式）：
+Enable the plugin through the official Claude Code mechanism:
 
 ```bash
 claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin
 claude plugin install drogon
 ```
 
-## 包内含什么
+## What's in the box
 
-本包内置完整插件资产（`assets/`）：`skills/`（17 个技能）+ `hooks/`（SessionStart + PostToolUse）+ `CLAUDE.md` + `.claude-plugin/` manifest，与 GitHub 仓库保持同步。
+This package bundles the complete plugin assets (`assets/`): `skills/` (17 skills) + `hooks/` (SessionStart +
+PostToolUse) + `CLAUDE.md` + `.claude-plugin/` manifests, always kept in sync with the GitHub repository.
 
-## 许可
+## License
 
-MIT — 完整插件说明见 [GitHub 仓库](https://github.com/voidvec/drogon-claude-plugin)。
+MIT — full plugin documentation lives in the [GitHub repository](https://github.com/voidvec/drogon-claude-plugin).

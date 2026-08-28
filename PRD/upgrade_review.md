@@ -1,6 +1,6 @@
 # drogon-claude-plugin v0.2.0 升级方案详细评审意见
 
-> 基于对项目现有结构、[UPGRADE-PLAN-v0.2.0.md](file:///D:/work/development/Repos/drogon-claude-plugin/docs/UPGRADE-PLAN-v0.2.0.md) 以及 `drogon` (v1.9.13) 官方库源码与实际示例的深度对比，特制定本评审意见报告。
+> 基于对项目现有结构、[UPGRADE-PLAN-v0.2.0.md](../docs/UPGRADE-PLAN-v0.2.0.md) 以及 `drogon` (v1.9.13) 官方库源码与实际示例的深度对比，特制定本评审意见报告。
 
 ---
 
@@ -16,12 +16,12 @@
 
 ## 2. 核心 API 签名与设计修正（基于 Drogon 源码）
 
-经过直接对 `drogon` 框架库源码的走读，本评审意见对 [UPGRADE-PLAN-v0.2.0.md](file:///D:/work/development/Repos/drogon-claude-plugin/docs/UPGRADE-PLAN-v0.2.0.md) 的原有接口表述进行了修正，以避免编译错误和运行时隐患：
+经过直接对 `drogon` 框架库源码的走读，本评审意见对 [UPGRADE-PLAN-v0.2.0.md](../docs/UPGRADE-PLAN-v0.2.0.md) 的原有接口表述进行了修正，以避免编译错误和运行时隐患：
 
 ### 2.1 R 组：流式上传 (RequestStream) —— 修正编译期 API 错误
 
 *   **原方案断言**：在 handler 里通过 `req->setStreamReader(reader)` 注册读取器。
-*   **源码核对结论**：核对 [RequestStream.h](file:///D:/work/development/Repos/cpp/drogon-ecosystem/drogon/lib/inc/drogon/RequestStream.h#L36-L47) 发现，`HttpRequest` 类没有继承 `RequestStream` 接口，本身**不具备** `setStreamReader` 方法。直接在 `HttpRequestPtr` 上调用该方法会导致**编译错误**。
+*   **源码核对结论**：核对 [RequestStream.h](https://github.com/drogonframework/drogon/blob/v1.9.13/lib/inc/drogon/RequestStream.h#L36-L47) 发现，`HttpRequest` 类没有继承 `RequestStream` 接口，本身**不具备** `setStreamReader` 方法。直接在 `HttpRequestPtr` 上调用该方法会导致**编译错误**。
 *   **修正规范**：流式上传必须使用底层提供的接口转换函数 `drogon::internal::createRequestStream` 进行包装后调用：
     ```cpp
     // ✅ 正确：通过内部 createRequestStream 封装后再设置 Reader
@@ -36,7 +36,7 @@
 ### 2.2 M 组：会话 (Session) —— 修正底层数据结构定义
 
 *   **原方案断言**：会话底层数据结构为 `std::unordered_map<std::string, std::any>`。
-*   **源码核对结论**：核对 [Session.h](file:///D:/work/development/Repos/cpp/drogon-ecosystem/drogon/lib/inc/drogon/Session.h#L34) 发现，会话底层使用的类型实际上是 `std::map<std::string, std::any>`，并非 `unordered_map`：
+*   **源码核对结论**：核对 [Session.h](https://github.com/drogonframework/drogon/blob/v1.9.13/lib/inc/drogon/Session.h#L34) 发现，会话底层使用的类型实际上是 `std::map<std::string, std::any>`，并非 `unordered_map`：
     ```cpp
     using SessionMap = std::map<std::string, std::any>;
     ```
@@ -45,7 +45,7 @@
 ### 2.3 O 组：AOP 面向切面编程 (Advices) —— 完善 11 个内建切面体系
 
 *   **原方案断言**：方案仅指出了 8 个内建插入点，且未作分类。
-*   **源码核对结论**：核对 [HttpAppFramework.h](file:///D:/work/development/Repos/cpp/drogon-ecosystem/drogon/lib/inc/drogon/HttpAppFramework.h#L273-L441) 以及 [Session 相关 Advice](file:///D:/work/development/Repos/cpp/drogon-ecosystem/drogon/lib/inc/drogon/HttpAppFramework.h#L920-L928) 发现，Drogon 实际上提供了 **11 个内建的 AOP 切面**，具体分类如下：
+*   **源码核对结论**：核对 [HttpAppFramework.h](https://github.com/drogonframework/drogon/blob/v1.9.13/lib/inc/drogon/HttpAppFramework.h#L273-L441) 以及 [Session 相关 Advice](https://github.com/drogonframework/drogon/blob/v1.9.13/lib/inc/drogon/HttpAppFramework.h#L920-L928) 发现，Drogon 实际上提供了 **11 个内建的 AOP 切面**，具体分类如下：
     1.  **请求/响应生命周期切面 (7个)**：
         *   `SyncAdvice`：同步拦截，返回非空响应即直接短路（不执行后续路由与过滤器）。
         *   `Pre-Routing`：路由匹配前（拦截型/观察型）。
@@ -108,13 +108,13 @@
 在深入审阅插件当前版本（v0.1.0）的代码时，本评审发现了以下必须在 v0.2.0 中进行修正的实现缺陷：
 
 ### 4.1 异步回调检测钩子误报与自身规则冲突（高危）
-*   **缺陷现象**：[posttooluse.py:L29](file:///D:/work/development/Repos/drogon-claude-plugin/hooks/posttooluse.py#L29) 处的正则 `r'std::function\s*<\s*void\s*\(\s*const\s+HttpResponsePtr\s*[&*]\s*\)\s*>\s*(?!.*\bcallback\b)'` 强行规定回调变量名必须为 `callback`，并且限制在单行。
+*   **缺陷现象**：[posttooluse.py:L29](../hooks/posttooluse.py#L29) 处的正则 `r'std::function\s*<\s*void\s*\(\s*const\s+HttpResponsePtr\s*[&*]\s*\)\s*>\s*(?!.*\bcallback\b)'` 强行规定回调变量名必须为 `callback`，并且限制在单行。
 *   **危害后果**：
     1.  如果回调变量折行定义，会误报“未调用 callback”警告。
-    2.  与 [CLAUDE.md](file:///D:/work/development/Repos/drogon-claude-plugin/CLAUDE.md) 的推荐示例相冲突（`CLAUDE.md` 在 good 示例中大量将回调简写为 `cb`），导致 AI 严格遵循插件规范生成代码时，却被插件自身的检测钩子判定为违规。
+    2.  与 [CLAUDE.md](../CLAUDE.md) 的推荐示例相冲突（`CLAUDE.md` 在 good 示例中大量将回调简写为 `cb`），导致 AI 严格遵循插件规范生成代码时，却被插件自身的检测钩子判定为违规。
 *   **改进方案**：更新正则以兼容 `callback` 或 `cb`，并支持多行折行检测。
 
 ### 4.2 全局大小写不敏感匹配导致高误报率
-*   **缺陷现象**：[posttooluse.py:L116](file:///D:/work/development/Repos/drogon-claude-plugin/hooks/posttooluse.py#L116) 对所有规则文件都应用了 `re.IGNORECASE` 匹配，其中包括针对 `done()` 的检测规则。
+*   **缺陷现象**：[posttooluse.py:L116](../hooks/posttooluse.py#L116) 对所有规则文件都应用了 `re.IGNORECASE` 匹配，其中包括针对 `done()` 的检测规则。
 *   **危害后果**：在 C++ 中，`bool isDone()`、`task.done()` 是极为普通的函数与变量名。因为大小写不敏感与单词边界判定，哪怕是正常的业务逻辑调用，也会被错误拦截为“测试 done() 回调误用违规”。
 *   **改进方案**：针对大小写敏感的 C++ 标识符匹配项（例如 `done()`、`createDbClient`），在正则级别中去除全局 `IGNORECASE` 约束，改用精确大小写检测。

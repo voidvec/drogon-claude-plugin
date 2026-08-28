@@ -30,7 +30,7 @@ classifiers = [
 Homepage = "https://github.com/voidvec/drogon-claude-plugin"
 Repository = "https://github.com/voidvec/drogon-claude-plugin"
 Documentation = "https://github.com/voidvec/drogon-claude-plugin#readme"
-Changelog = "https://github.com/voidvec/drogon-claude-plugin/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/voidvec/drogon-claude-plugin/blob/master/CHANGELOG.md"
 
 [project.scripts]
 drogon-claude-plugin = "drogon_plugin.cli:main"
