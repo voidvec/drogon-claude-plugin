@@ -10,7 +10,7 @@ Instead, contact the maintainers privately:
 - **GitHub advisory**: use the
   [Report a vulnerability](https://github.com/voidvec/drogon-claude-plugin/security/advisories/new)
   form on the repository, or
-- **Email**: `voidvec-maintainer@example.com` (replace with your real address)
+- **Email**: `luca@c0ding.cc`
 
 We try to acknowledge reports within **3 working days** and are happy to credit
 contributors in the advisory once a fix is released.
