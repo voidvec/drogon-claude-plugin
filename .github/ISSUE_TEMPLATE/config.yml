@@ -1,0 +1,11 @@
+name: Other / question
+description: General question or something that doesn't fit the other templates
+labels: ["question"]
+body:
+  - type: textarea
+    id: content
+    attributes:
+      label: Your question
+      description: Ask away.
+    validations:
+      required: true

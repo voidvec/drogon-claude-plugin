@@ -1,0 +1,63 @@
+name: 🐛 Bug report
+description: Report a problem with the plugin rules, skills, hooks, or the CLI installer
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill out the form below.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the plugin is affected?
+      options:
+        - Skills (skills/)
+        - Rules / CLAUDE.md
+        - PostToolUse hook (hooks/posttooluse.py)
+        - SessionStart hook
+        - CLI installer (npm / PyPI)
+        - Packaging / CI / Release
+        - Documentation (README / docs)
+        - Other
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Paste the versions you are using.
+        - `claude --version`
+        - `drogon-claude-plugin version`
+        - OS / Python / Node versions
+      placeholder: |
+        claude 2.1.x / macOS 14.5 / Python 3.12
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal drogon code snippet or CLI commands that trigger the problem.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste the exact error message / hook output, or a screenshot.
+    validations:
+      required: true
+  - type: markdown
+    markdown: |
+      Before submitting, check that no similar issue already exists: [open issues](https://github.com/voidvec/drogon-claude-plugin/issues).

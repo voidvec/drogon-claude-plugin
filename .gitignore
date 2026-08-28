@@ -32,5 +32,8 @@ npm/assets/
 .DS_Store
 Thumbs.db
 
+# Local tooling state (agent memory, not part of the repo)
+.workbuddy/
+
 # Local package installs (for testing)
 /tmp/
