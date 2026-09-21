@@ -21,6 +21,7 @@ jobs:
             python3 -c "import json;print(json.load(open('.claude-plugin/plugin.json'))['version'])"
             python3 -c "import json;print(json.load(open('.zcode-plugin/plugin.json'))['version'])"
             python3 -c "import json;print(json.load(open('npm/package.json'))['version'])"
+            python3 -c "import json;print(json.load(open('.claude-plugin/marketplace.json'))['plugins'][0]['version'])"
             grep -oP '^version\s*=\s*"\K[^"]+' pyproject.toml
             grep -oP '__version__\s*=\s*"\K[^"]+' src/drogon_plugin/__init__.py
             grep -oP 'PLUGIN_VERSION\s*=\s*"\K[^"]+' src/drogon_plugin/__init__.py

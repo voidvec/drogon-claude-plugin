@@ -100,7 +100,11 @@ def test_zcode_manifest_mirrors_claude_manifest():
     zcode = json.loads((REPO_ROOT / ".zcode-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert zcode["name"] == claude["name"]
     assert zcode["version"] == claude["version"]
-    assert zcode.get("skills") == "skills"
+    # Per the ZCode plugin reference: skills points at ./skills, hooks at
+    # hooks/hooks.json; both must resolve inside the plugin root.
+    assert zcode.get("skills") in ("skills", "./skills")
+    assert zcode.get("hooks") == "hooks/hooks.json"
+    assert (REPO_ROOT / "hooks" / "hooks.json").is_file()
 
 
 def test_versions_are_synced():
@@ -145,6 +149,37 @@ def test_post_tool_use_launcher_falls_back_silently():
     text = (REPO_ROOT / "hooks" / "post-tool-use").read_text(encoding="utf-8")
     assert "python3" in text and "DROGON_PLUGIN_PYTHON" in text
     assert "exit 0" in text
+
+
+# Mirrors the official ZCode plugin-creator preflight rule: unresolved
+# placeholders (TODO / FIXME / <your-...> / YOUR_API_KEY) in plugin-facing
+# files fail `zcode plugins validate`.
+PLACEHOLDER = re.compile(r"\bTODO\b|\bFIXME\b|<your[-_ ][^>]+>|YOUR_API_KEY")
+
+
+def test_no_unresolved_placeholders_in_plugin_assets():
+    targets = [REPO_ROOT / "CLAUDE.md"]
+    for root in ("skills", "hooks", ".claude-plugin", ".zcode-plugin"):
+        base = REPO_ROOT / root
+        if base.is_dir():
+            targets += [p for p in base.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    offenders = []
+    for f in targets:
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        m = PLACEHOLDER.search(text)
+        if m:
+            offenders.append(f"{f.relative_to(REPO_ROOT)}: '{m.group(0)}'")
+    assert not offenders, f"unresolved placeholders: {offenders}"
+
+
+def test_marketplace_entry_has_catalog_fields():
+    data = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    entry = data["plugins"][0]
+    for field in ("name", "source", "version", "description", "displayName", "category"):
+        assert field in entry, f"marketplace entry missing {field}"
+    assert entry["version"] == json.loads(
+        (REPO_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )["version"]
 
 
 if __name__ == "__main__":

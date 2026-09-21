@@ -43,7 +43,7 @@ class ${filter_name} : public drogon::HttpFilter<${filter_name}, false> {
 
   private:
     bool verifyToken(const std::string &token) const {
-        // TODO: implement token verification logic
+        // Business logic: implement token verification here (example always fails)
         return false;
     }
 };
@@ -73,7 +73,7 @@ class ${filter_name} : public drogon::HttpFilter<${filter_name}, false> {
 
   private:
     bool isRateLimited(const std::string &ip) const {
-        // TODO: implement rate limiting logic
+        // Business logic: implement rate limiting decision here (example always fails)
         return false;
     }
 };
