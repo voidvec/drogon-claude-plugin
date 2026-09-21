@@ -21,6 +21,7 @@ def run(cli_args):
         ["drogon-claude-plugin", *cli_args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         shell=False,
     )
     print(r.stdout, end="")
@@ -29,7 +30,17 @@ def run(cli_args):
     return r.returncode, r.stdout
 
 
+def _utf8_stdio() -> None:
+    # Windows 下 stdout 为管道时默认 cp1252,print ✅/中文 会抛 UnicodeEncodeError
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_stdio()
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()

@@ -8,57 +8,33 @@ on:
 permissions:
   contents: write
 
+env:
+  # Windows runner 的 Python 管道输出默认 cp1252,✅/中文 会抛 UnicodeEncodeError
+  PYTHONUTF8: '1'
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Assert tag matches every version manifest
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          V="$(cat VERSION | tr -d '[:space:]')"
-          if [ "$TAG" != "$V" ]; then
-            echo "version mismatch: VERSION($V) != tag($TAG) — bump VERSION and run scripts/gen-host-artifacts.py"
-            exit 1
-          fi
-          versions="$(
-            python3 - <<'PY'
-import json, re
-from pathlib import Path
-files = [
-    ".claude-plugin/plugin.json", ".zcode-plugin/plugin.json",
-    ".agents/plugins/marketplace.json", ".codex-plugin/plugin.json",
-    "gemini-extension.json", "npm/package.json",
-]
-for f in files:
-    d = json.loads(Path(f).read_text(encoding="utf-8"))
-    if f.endswith("marketplace.json"):
-        print(d["plugins"][0]["version"])
-    else:
-        print(d["version"])
-init = Path("src/drogon_plugin/__init__.py").read_text(encoding="utf-8")
-print(re.search(r'__version__ = "([^"]+)"', init).group(1))
-print(re.search(r'PLUGIN_VERSION = "([^"]+)"', init).group(1))
-print(re.search(r'^version = "([^"]+)"', Path("pyproject.toml").read_text(encoding="utf-8"), re.M).group(1))
-PY
-          )"
-          echo "tag=$TAG"; echo "$versions"
-          for v in $versions; do
-            if [ "$v" != "$TAG" ]; then
-              echo "version mismatch: '$v' != tag '$TAG'"
-              exit 1
-            fi
-          done
-          echo "tag $TAG matches every version manifest"
-
-      - name: Assert host artifacts are up to date
-        run: python scripts/gen-host-artifacts.py --check
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Assert tag matches VERSION
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          V="$(tr -d '[:space:]' < VERSION)"
+          if [ "$TAG" != "$V" ]; then
+            echo "version mismatch: VERSION($V) != tag($TAG) — bump VERSION and run scripts/gen-host-artifacts.py"
+            exit 1
+          fi
+          echo "tag $TAG == VERSION"
+
+      - name: Assert host artifacts and manifest versions
+        run: python scripts/gen-host-artifacts.py --check
 
       - name: Build sdist & wheel
         run: |

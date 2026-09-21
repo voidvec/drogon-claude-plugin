@@ -81,7 +81,17 @@ def check() -> bool:
     return True
 
 
+def _utf8_stdio() -> None:
+    # Windows 下 stdout 为管道时默认 cp1252,print ✅/中文 会抛 UnicodeEncodeError
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_stdio()
     if len(sys.argv) > 1 and sys.argv[1] == "--check":
         if not DEST.is_dir():
             print("❌ 资产目录缺失，请先运行 python scripts/sync-assets.py")

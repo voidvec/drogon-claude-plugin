@@ -271,7 +271,17 @@ def violations_map_for(category: str) -> List[Violation]:
     return m.get(category, [])
 
 
+def _utf8_stdio():
+    # Windows 下 stdout 为管道时默认 cp1252,违规消息含中文/破折号会抛 UnicodeEncodeError
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main():
+    _utf8_stdio()
     # --scan 模式:独立扫描器(无钩子宿主 / CI),不走 stdin hook 协议
     if "--scan" in sys.argv[1:]:
         args = [a for a in sys.argv[1:] if a != "--scan"]

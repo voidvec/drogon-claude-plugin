@@ -257,7 +257,17 @@ def check(version: str) -> list:
     return problems
 
 
+def _utf8_stdio() -> None:
+    # Windows 下 stdout 为管道时默认 cp1252,print ✅/中文 会抛 UnicodeEncodeError
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _utf8_stdio()
     version = read_version()
     if "--check" in sys.argv:
         problems = check(version)

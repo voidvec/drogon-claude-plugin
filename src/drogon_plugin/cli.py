@@ -787,7 +787,17 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _utf8_stdio() -> None:
+    # Windows 下 stdout 为管道/重定向时默认 cp1252,print ✅/中文 会抛 UnicodeEncodeError
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: "list[str] | None" = None) -> int:
+    _utf8_stdio()
     parser = _build_parser()
     args = parser.parse_args(argv)
 

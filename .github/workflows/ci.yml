@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   pull_request:
 
+env:
+  # Windows runner 的 Python 管道输出默认 cp1252,✅/中文 会抛 UnicodeEncodeError
+  PYTHONUTF8: '1'
+
 jobs:
   validate-plugin:
     name: Validate plugin (${{ matrix.os }})
