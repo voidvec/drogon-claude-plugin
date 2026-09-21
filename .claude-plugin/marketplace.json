@@ -8,7 +8,7 @@
     {
       "name": "drogon",
       "source": ".",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "description": "Drogon C++ 后端开发规则与技能: 基于 Drogon 框架编写正确的异步代码, 避开回调/事件循环等高频陷阱。适用于 Claude Code 与 ZCode。",
       "displayName": "Drogon C++ Backend",
       "author": {

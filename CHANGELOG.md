@@ -6,6 +6,18 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-21
+
+CI/发布修复版本。0.3.0 的 publish.yml 存在 YAML 解析错误,发布从未实际执行;且 `0.3.0` 文件名在 PyPI 曾被上传后删除而永久禁用复用,故以 0.3.1 发布。
+
+### Fixed
+
+- **publish.yml 解析错误**:heredoc 内 Python 代码顶格书写,提前终止了 `run: |` 块标量,workflow 整体解析失败(publish run 零 job 即失败)。改为纯 bash 断言 `tag == VERSION`,全部清单版本一致性复用 `gen-host-artifacts.py --check`(单一事实源,覆盖面更全);`setup-python` 移至断言之前,不再依赖 runner 预装 python3。
+- **Windows cp1252 UnicodeEncodeError**:Windows runner 管道 stdout 默认 cp1252,print `✅`/中文 抛异常,validate-plugin 与 CLI smoke 两个 job 均失败:
+  - ci.yml / publish.yml 顶层 `env.PYTHONUTF8: 1`;
+  - CLI / scripts / hook 各入口将 stdout/stderr reconfigure 为 UTF-8(同步保护 Windows 终端与管道场景下的最终用户);
+  - dev-smoke-test.py 对子进程输出显式按 UTF-8 解码。
+
 ## [0.3.0] - 2026-09-21
 
 多宿主版本:Codex / Cursor / VS Code (Copilot) / Gemini CLI / Qoder / CodeBuddy / Trae / 通用 `.agents` 接入(方案与两轮对抗性评审见 `docs/INTEGRATION-PLAN-v0.3.0.md`、`docs/INTEGRATION-REVIEW-v0.3.0.md`;全部宿主落点依据官方文档实读)。

@@ -1,6 +1,6 @@
 # Drogon 后端开发规则
 
-> 本文件由 drogon-claude-plugin v0.3.0 自动生成,请勿手改(源:CLAUDE.md;重新生成:python scripts/gen-host-artifacts.py)。适用于任何读取 AGENTS.md 的 coding agent。
+> 本文件由 drogon-claude-plugin v0.3.1 自动生成,请勿手改(源:CLAUDE.md;重新生成:python scripts/gen-host-artifacts.py)。适用于任何读取 AGENTS.md 的 coding agent。
 >
 > 下文的 Skill 路由表指向随插件分发的 22 个技能(Claude Code / ZCode / Codex / Cursor / VS Code / Gemini CLI 经各自机制安装后可用)。若当前环境只落了规则文件,路由表仍可作为 drogon 领域地图使用。
 

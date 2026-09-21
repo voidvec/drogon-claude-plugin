@@ -7,9 +7,9 @@
 插件本体仓库: https://github.com/voidvec/drogon-claude-plugin
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 # 打包进 wheel 的插件资产
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_VERSION = "0.3.1"
 
 __all__ = ["__version__", "PLUGIN_VERSION"]

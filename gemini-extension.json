@@ -1,6 +1,6 @@
 {
   "name": "drogon",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Drogon C++ backend rules & skills: correct async code, avoiding callback / event-loop pitfalls. Works with Claude Code, ZCode, Codex, Cursor, VS Code (Copilot), Gemini CLI and any AGENTS.md-compatible agent.",
   "contextFileName": "GEMINI.md"
 }
