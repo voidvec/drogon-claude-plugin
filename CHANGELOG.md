@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- ci.yml:validate-plugin 在 pytest 前先运行 `sync-assets.py` 生成 `drogon_plugin_assets/`(该目录 gitignore,test_hosts.py 依赖其存在;此前该测试从未在 CI 真正执行过,一直被上游 Unicode 崩溃掩盖)。
+
 ## [0.3.1] - 2026-09-21
 
 CI/发布修复版本。0.3.0 的 publish.yml 存在 YAML 解析错误,发布从未实际执行;且 `0.3.0` 文件名在 PyPI 曾被上传后删除而永久禁用复用,故以 0.3.1 发布。
