@@ -185,6 +185,18 @@ def test_copilot_host_opt_in(tmp_path):
     assert not (p / ".agents").exists()
 
 
+def test_full_action_not_downgraded_by_marker(tmp_path):
+    """回归:full(我们创建的文件)不因后装宿主的 marker 记录而降级,
+    否则全量卸载只剥标记段、残留空文件。"""
+    p = _make_project(tmp_path)  # 无 AGENTS.md
+    _run_cli("install", "--target", str(p), "--host", "codex")  # → full
+    _run_cli("install", "--target", str(p), "--host", "copilot")  # → marker(覆盖风险点)
+    assert _run_cli("uninstall", "--target", str(p)) == 0
+    assert not (p / "AGENTS.md").exists(), "full 创建的文件应被完整删除"
+    left = sorted(x.name for x in p.iterdir())
+    assert left == []
+
+
 def test_full_uninstall_removes_everything_but_user_files(tmp_path):
     p = _make_project(tmp_path, with_user_agents=True)
     _run_cli("install", "--target", str(p))

@@ -414,7 +414,12 @@ def cmd_install(args) -> int:
                 print(f"   [{host}] ⚠ 资产缺 AGENTS.md,跳过 {name}")
                 continue
             action = _write_instruction_file(project, name, agents_md, force=force)
-            instruction_files[name] = action
+            # 同一安装批次内,同一指令文件可能被多个宿主先后写入
+            # (如 codex 建文件 full,qoder 替换标记段 marker)——记录取最强动作,
+            # 防 full 被降级(否则全量卸载只剥标记段,残留我们创建的文件)。
+            _rank = {"full": 3, "marker": 2, "skipped": 1}
+            if _rank.get(action, 0) >= _rank.get(instruction_files.get(name, ""), 0):
+                instruction_files[name] = action
             if action == "skipped":
                 print(
                     f"   [{host}] ⚠ {name} 已存在,未改动(项目自有文件不受触碰)。\n"
@@ -427,12 +432,19 @@ def cmd_install(args) -> int:
         installed_hosts.append(host)
 
     stamp = _load_stamp(project)
+    # 指令文件动作取"最强":一旦 full(文件由我们创建)就不被后装的 marker
+    # 降级——否则全量卸载只剥标记段,留下我们创建的空文件。
+    rank = {"full": 3, "marker": 2, "skipped": 1}
+    merged_instructions = dict(stamp.get("instruction_files", {}))
+    for name, action in instruction_files.items():
+        if rank.get(action, 0) >= rank.get(merged_instructions.get(name, ""), 0):
+            merged_instructions[name] = action
     stamp.update(
         {
             "version": PLUGIN_VERSION,
             "hosts": sorted(set(stamp.get("hosts", []) + installed_hosts)),
             "files": sorted(set(stamp.get("files", []) + written)),
-            "instruction_files": {**stamp.get("instruction_files", {}), **instruction_files},
+            "instruction_files": merged_instructions,
         }
     )
     _save_stamp(project, stamp)
