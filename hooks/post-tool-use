@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# PostToolUse launcher for the drogon plugin - locates a Python 3 interpreter
+# and runs posttooluse.py (the violation scanner). Pure-bash fallback chain:
+#   DROGON_PLUGIN_PYTHON > python3 > python > py
+# Exits 0 silently when no Python 3 is available so the hook degrades
+# gracefully (the SessionStart rules injection is pure bash and unaffected).
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PY_SCRIPT="$SCRIPT_DIR/posttooluse.py"
+
+[ -f "$PY_SCRIPT" ] || exit 0
+
+# Intentional word splitting: candidates are a plain whitespace-separated list.
+candidates="${DROGON_PLUGIN_PYTHON:-} python3 python py"
+for cand in $candidates; do
+    [ -n "$cand" ] || continue
+    command -v "$cand" >/dev/null 2>&1 || continue
+    # Must be Python >= 3.7 (posttooluse.py uses f-strings); on systems where
+    # "python" is Python 2 or "py" has no 3.x registered, keep looking.
+    if "$cand" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 7) else 1)' 2>/dev/null; then
+        exec "$cand" "$PY_SCRIPT"
+    fi
+done
+
+# No Python 3 found - degrade silently (exit 0), never fail the host app.
+exit 0

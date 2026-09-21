@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
-const ASSETS = ['skills', 'hooks', '.claude-plugin']
+const ASSETS = ['skills', 'hooks', '.claude-plugin', '.zcode-plugin']
 const FILES = ['CLAUDE.md']
 const DEST = path.join(REPO_ROOT, 'npm', 'assets')
 
@@ -35,7 +35,12 @@ function sync() {
   for (const name of ASSETS) {
     const src = path.join(REPO_ROOT, name)
     if (fs.existsSync(src)) {
-      fs.cpSync(src, path.join(DEST, name), { recursive: true })
+      // filter 与 collect() 的 IGNORE_DIRS 保持一致：__pycache__ 等中间产物
+      // 不进包（cpSync 默认会原样复制，计数却忽略它，导致包内多出 .pyc）
+      fs.cpSync(src, path.join(DEST, name), {
+        recursive: true,
+        filter: (p) => !IGNORE_DIRS.has(path.basename(p)),
+      })
       count += collect(path.join(DEST, name)).length
     }
   }
@@ -49,7 +54,21 @@ function sync() {
   console.log(`✅ 已同步 ${count} 个资产文件到 npm/assets`)
 }
 
+function listAll(dir) {
+  const out = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...listAll(full))
+    else out.push(full)
+  }
+  return out
+}
+
 function check() {
+  // DEST 侧不允许出现任何中间产物（cpSync 曾把 __pycache__ 原样带进包）
+  for (const f of listAll(DEST)) {
+    if (IGNORE_DIRS.has(path.basename(path.dirname(f)))) return false
+  }
   for (const name of ASSETS) {
     const src = path.join(REPO_ROOT, name)
     const dst = path.join(DEST, name)

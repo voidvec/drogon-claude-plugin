@@ -14,6 +14,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Assert tag matches all four version files
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          versions="$(
+            python3 -c "import json;print(json.load(open('.claude-plugin/plugin.json'))['version'])"
+            python3 -c "import json;print(json.load(open('.zcode-plugin/plugin.json'))['version'])"
+            python3 -c "import json;print(json.load(open('npm/package.json'))['version'])"
+            grep -oP '^version\s*=\s*"\K[^"]+' pyproject.toml
+            grep -oP '__version__\s*=\s*"\K[^"]+' src/drogon_plugin/__init__.py
+            grep -oP 'PLUGIN_VERSION\s*=\s*"\K[^"]+' src/drogon_plugin/__init__.py
+          )"
+          echo "tag=$TAG"; echo "$versions"
+          for v in $versions; do
+            if [ "$v" != "$TAG" ]; then
+              echo "version mismatch: '$v' != tag '$TAG' — bump all four files before tagging (see PITFALLS 1.1)"
+              exit 1
+            fi
+          done
+          echo "tag $TAG matches every version file"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ASSETS = ("skills", "hooks", ".claude-plugin")
+ASSETS = ("skills", "hooks", ".claude-plugin", ".zcode-plugin")
 FILES = ("CLAUDE.md",)
 DEST = REPO_ROOT / "src" / "drogon_plugin" / "drogon_plugin_assets"
 

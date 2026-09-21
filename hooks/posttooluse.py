@@ -50,9 +50,9 @@ CPP_VIOLATIONS: List[Violation] = [
      'HttpClient synchronous sendRequest(req [, timeout]) has a deadlock assert and must NOT be '
      'called in the event-loop thread / handler. Use the async overload sendRequest(req, callback) '
      'or sendRequestCoro() (HttpClient.h:133). See drogon-gen-http-client skill.'),
-    # Session naked subscript (M group) — matches req->session()->operator[](...) and
-    # session(Ptr)->operator[](...). Variable names vary, so anchor on session.
-    (r'session\b\w*(?:\s*\)|\s*)*->\s*operator\s*\[\s*\]|->\s*session\s*\(\s*\)\s*->\s*operator\s*\[\s*\]',
+    # Session naked subscript (M group) — matches req->session()->operator[](...)
+    # and session/sessionPtr-style variables used as ->operator[](...).
+    (r'session\w*(?:\s*\(\s*\))?\s*->\s*operator\s*\[\s*\]',
      'session->operator[] returns std::any& and needs any_cast — error-prone. '
      'Use getOptional<T>() or modify<T>() instead (Session.h). See drogon-gen-session-auth skill.'),
     # Advice registered inside handler (O group) — case-sensitive C++ identifiers

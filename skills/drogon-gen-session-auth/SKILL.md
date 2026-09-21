@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-session-auth
 description: 生成基于 drogon Session 的登录/登出/鉴权 handler 代码，含 changeSessionIdToClient 防 fixation。
-version: 0.1.0
+version: 0.2.0
 ---
 
 # drogon-gen-session-auth

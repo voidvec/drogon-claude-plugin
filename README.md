@@ -1,6 +1,6 @@
 # drogon-claude-plugin
 
-> **Claude Code plugin for Drogon C++ backend development** — AI-assisted development rules and code-generation skills that keep the assistant writing *correct* asynchronous code, avoiding classic callback / event-loop pitfalls.
+> **Coding-agent plugin for Drogon C++ backend development** — AI-assisted development rules and code-generation skills that keep the assistant writing *correct* asynchronous code, avoiding classic callback / event-loop pitfalls. Works with **Claude Code** and **ZCode** on **Windows / Linux / macOS**.
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -9,27 +9,31 @@
 [![PyPI version](https://img.shields.io/pypi/v/drogon-claude-plugin.svg)](https://pypi.org/project/drogon-claude-plugin/)
 [![npm version](https://img.shields.io/npm/v/drogon-claude-plugin.svg)](https://www.npmjs.com/package/drogon-claude-plugin)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://docs.anthropic.com/en/docs/claude-code/plugins)
+[![ZCode](https://img.shields.io/badge/ZCode-plugin-8A2BE2)](https://z.ai)
 
-A [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins) for application projects built on the [Drogon](https://github.com/drogonframework/drogon) C++ HTTP framework. It provides AI-assisted development rules and **code-generation skills** so the assistant produces correct, idiomatic asynchronous code and avoids the frequent traps around callbacks and the event loop.
+A [Claude Code](https://docs.anthropic.com/en/docs/claude-code/plugins) / [ZCode](https://z.ai) plugin for application projects built on the [Drogon](https://github.com/drogonframework/drogon) C++ HTTP framework. It provides AI-assisted development rules and **22 code-generation skills** so the assistant produces correct, idiomatic asynchronous code and avoids the frequent traps around callbacks and the event loop.
 
 ## Installation
 
-### Option A: Marketplace (recommended)
+### Option A: Marketplace (recommended, both hosts)
+
+**Claude Code:**
 
 ```bash
 # Add the marketplace source (first time only)
 claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin
 
-# Install the plugin
+# Install / update / uninstall
 claude plugin install drogon
-
-# Update to the latest version
 claude plugin update drogon
+claude plugin uninstall drogon
 ```
+
+**ZCode:** add the same marketplace (`https://github.com/voidvec/drogon-claude-plugin`) in ZCode's plugin manager, then install the `drogon` plugin. ZCode reads the standard Claude plugin format, so everything — skills, hooks, rules injection — works the same.
 
 ### Option B: npm / PyPI (CLI installer)
 
-The npm and PyPI packages **bundle the exact same plugin assets** and expose a single `drogon-claude-plugin` command with `install` / `verify` / `uninstall` / `version` subcommands. No need to clone this repository.
+The npm and PyPI packages **bundle the exact same plugin assets** and expose a single `drogon-claude-plugin` command. Assets are installed into a self-contained `.drogon-plugin/` directory inside your project — your own files (including your `CLAUDE.md`) are never touched.
 
 ```bash
 # npm (no installation needed, run on the fly)
@@ -40,7 +44,7 @@ pipx install drogon-claude-plugin
 drogon-claude-plugin install
 ```
 
-> The installer only **distributes and materializes** the assets. It does not replace Claude Code's official plugin mechanism — the plugin is still enabled with `claude plugin install` (the installer will tell you to run it).
+> The installer only **distributes and materializes** the assets. It does not replace the host's plugin mechanism — after installing you register the local copy once with `claude plugin install .drogon-plugin --scope project` (the CLI prints the exact commands for both hosts).
 
 ### Option C: Install from source
 
@@ -53,32 +57,22 @@ claude plugin install ../drogon-claude-plugin --scope project
 ### Verify the installation
 
 ```bash
-claude plugin details drogon
+claude plugin details drogon        # Claude Code
+drogon-claude-plugin verify         # CLI installer (works for any host)
 ```
 
-You should see **17 skills** and **2 hooks** (SessionStart + PostToolUse).
+You should see **22 skills** and **2 hooks** (SessionStart + PostToolUse).
 
 ## The CLI installer
 
-`drogon-claude-plugin` is published on both [npm](https://www.npmjs.com/package/drogon-claude-plugin) and [PyPI](https://pypi.org/project/drogon-claude-plugin/). Both packages ship the same plugin assets (`skills/`, `hooks/`, `CLAUDE.md`, `.claude-plugin/`) and provide the same command-line interface:
+`drogon-claude-plugin` is published on both [npm](https://www.npmjs.com/package/drogon-claude-plugin) and [PyPI](https://pypi.org/project/drogon-claude-plugin/). Both packages ship the same plugin assets and provide the same command-line interface:
 
 | Command | What it does |
 |---------|--------------|
-| `drogon-claude-plugin install [--scope project\|user\|local]` | Copies the plugin assets into the current project (or the given scope) and prompts you to run `claude plugin install` |
-| `drogon-claude-plugin verify` | Validates the installed structure (skills / hooks / manifests) and prints a report |
-| `drogon-claude-plugin uninstall` | Removes the installed plugin assets from the current project (or the `--target` directory) |
-| `drogon-claude-plugin version` | Prints the CLI and the bundled plugin version |
-
-### Typical usage
-
-```bash
-# Run at the root of your drogon project
-npx drogon-claude-plugin install             # npm, on the fly
-drogon-claude-plugin install                 # after pipx / npm -g install
-
-drogon-claude-plugin verify                  # confirm all 17 skills + 2 hooks
-drogon-claude-plugin uninstall               # remove the assets (never touches your code)
-```
+| `drogon-claude-plugin install [--target DIR]` | Copies the plugin assets into `<DIR>/.drogon-plugin/` and prints per-host enable steps |
+| `drogon-claude-plugin verify [--target DIR]` | Validates the installed structure (skills / hooks / manifests / version consistency) |
+| `drogon-claude-plugin upgrade [--target DIR]` | Upgrades the installed assets to the bundled version (migrates v0.1.x root layouts automatically) |
+| `drogon-claude-plugin uninstall [--target DIR]` | Removes the plugin assets — every removed item is ownership-checked, your own `CLAUDE.md` is never deleted |
 
 ## What's inside
 
@@ -87,7 +81,7 @@ The plugin is organised in three layers, each with a single responsibility:
 | Layer | Location | Purpose |
 |-------|----------|---------|
 | **Rules** | `CLAUDE.md` | Top-level discipline auto-injected into every session (async callback model, event-loop model) |
-| **Skills** | `skills/` (17) | On-demand drogon code generation / configuration skills, backed by deep knowledge in `references/code-guide.md` |
+| **Skills** | `skills/` (22) | On-demand drogon code generation / configuration skills, backed by deep knowledge in `references/code-guide.md` |
 | **Detection** | `hooks/` (2) | Scans files after edits, flags drogon API violations, prompts fixes |
 
 ### Rules layer — `CLAUDE.md`
@@ -96,46 +90,53 @@ A **slim-router** design: only the discipline that applies to *every* task (asyn
 
 Top-level discipline covers:
 
-- **A. Async callback model** — callback exactly once, capture by value, no blocking, prefer coroutines, exception-safe
-- **B. Event-loop model (Trantor IO)** — never block the loop, offload heavy work to the thread pool, lock shared state across loops
-- **General** — all I/O async, async ops take two callbacks, no exceptions escape handlers, config loading wrapped in try/catch, strict key names
+- **A. Async callback model** — callback exactly once, capture by value, no blocking, prefer coroutines (params by value!), exception-safe
+- **B. Event-loop model (Trantor IO)** — never block the loop, offload heavy work to a thread pool, lock shared state across loops
+- **General** — all I/O async, async ops take two callbacks, no exceptions escape handlers, config loading wrapped in try/catch, strict key names, prefer built-ins (Hodor / PromExporter / AccessLogger), never hand-edit generated code
 
-### Code-generation skills (17)
+### Code-generation skills (22)
 
-Each skill provides accurate drogon API usage, code templates, and warnings for common mistakes. The assistant invokes the matching skill when it meets the task, loading detailed knowledge only then:
+Every skill's `references/code-guide.md` was written against the **drogon v1.9.13 source tree** (not just the docs) — where the official docs disagree with the source, the source wins and the difference is called out.
 
 | Skill | Purpose |
 |-------|---------|
 | `drogon-create-controller` | Controllers (Simple/Http/WebSocket), path-prefix differences, `:param`, auto-registration |
-| `drogon-gen-cmake` | CMakeLists.txt, incl. Conan and filter-based compilation |
-| `drogon-gen-csp-view` | CSP view templates, the `drogon_ctl create view` pipeline, layouts |
+| `drogon-gen-lambda-handler` | `registerHandler` lambda routes (`{N}` parameter binding) |
+| `drogon-gen-orm-crud` | ORM CRUD — callback + coroutine style; banned `execSqlSync`, transaction discipline |
+| `drogon-gen-orm-model` | `drogon_ctl create model` workflow: model.json config, generated-code conventions, CMake integration, MSVC/C++20 codecvt shim |
 | `drogon-gen-db-config` | Database configuration, key-name blacklist, SQL-injection guards, runtime exceptions |
-| `drogon-gen-filter` | Filter request interceptors |
-| `drogon-gen-middleware` | Middleware processing chains |
-| `drogon-gen-plugin` | System-level plugins (connection pools / SDK init) and the boundary between the three |
-| `drogon-gen-orm-crud` | ORM CRUD code — banned `execSqlSync`, transaction discipline |
-| `drogon-gen-redis-config` | Redis config + leak-safe singleton / async / subscription usage |
-| `drogon-gen-test` | DROGON_TEST tests, assert macros, CMake test scanning |
-| `drogon-setup-config` | Complete config files, path resolution, key-name blacklist, multiple environments |
-| `drogon-gen-session-auth` | Session login / logout / auth handlers (fixation-safe) |
-| `drogon-gen-file-upload` | File-upload handlers (MultiPartParser + validation + persistence) |
-| `drogon-gen-advice` | AOP Advice (11 aspects, intercepting and observing) |
+| `drogon-gen-redis-config` | Redis config + `execCommandAsync` dual-callback patterns, subscriptions, coroutines |
+| `drogon-setup-config` | Complete config files: HTTPS listeners, static files, `custom_config`/`getCustomConfig`, `loadConfigJson`, multi-environment |
+| `drogon-gen-cmake` | CMakeLists.txt: `drogon_create_views`, drogon_ctl models, Conan 2, MSVC specifics |
 | `drogon-gen-coroutine-handler` | Coroutine handlers / middleware / ORM (params by value, Task vs AsyncTask, `forwardCoro`) |
 | `drogon-gen-http-client` | Outbound HttpClient calls (async / coroutine / reverse proxy) |
-| `drogon-gen-lambda-handler` | `registerHandler` lambda routes (`{N}` parameter binding) |
+| `drogon-gen-csp-view` | CSP view templates, the `drogon_ctl create view` pipeline, layouts |
+| `drogon-gen-filter` | Filter request interceptors |
+| `drogon-gen-middleware` | Middleware processing chains |
+| `drogon-gen-plugin` | System-level plugins: full lifecycle, `shutdown()` drain, dedicated `EventLoopThread` workers, static-lib registration pitfalls |
+| `drogon-gen-advice` | AOP Advice (11 aspects, intercepting and observing) |
+| `drogon-gen-file-upload` | File-upload handlers (MultiPartParser + validation + persistence) |
+| `drogon-gen-stream` | Streaming uploads (RequestStream) and chunked streaming responses (`newStreamResponse` / `newAsyncStreamResponse`) |
+| `drogon-gen-session-auth` | Session login / logout / auth (fixation-safe) + cookie security |
+| `drogon-gen-websocket` | WebSocket controllers, connection management / broadcast, cross-thread send safety, heartbeats |
+| `drogon-gen-rate-limiter` | Hodor plugin config + custom 429 responses, programmatic `RateLimiter`/`SafeRateLimiter`, Redis distributed limiting |
+| `drogon-gen-monitoring` | Prometheus metrics via PromExporter (Counter/Gauge/Histogram) |
+| `drogon-gen-test` | DROGON_TEST: assert macros, async tests, custom main, port isolation |
 
-### Detection hooks (`PostToolUse`)
+### Detection hooks (cross-platform, dependency-free rules injection)
 
-After the assistant edits a file, the hook scans for drogon API violations:
+After the assistant edits a file, the PostToolUse hook scans for drogon API violations; the SessionStart hook injects the rules layer. Hook execution is **bash-based via a polyglot launcher** (`hooks/run-hook.cmd`, the pattern proven by the superpowers plugin):
+
+- **SessionStart is pure shell** — no Python, Node or other interpreter required, so rules injection works identically on Windows (Git Bash), Linux and macOS, in both Claude Code and ZCode.
+- **PostToolUse** looks for a Python 3 interpreter (`python3` → `python` → `py`, overridable via `DROGON_PLUGIN_PYTHON`) and degrades silently when none exists — it never breaks the host.
+- The v0.1.x hooks invoked bare `python`, which fails silently on Ubuntu 24.04+ (no `python` binary) and many Windows setups; this is fixed in v0.2.0.
 
 | File type | Checks |
 |-----------|--------|
-| `.h/.cc/.cpp` | `FILTER_ADD`, `ADD_MIDDLEWARE`, `METHOD_LIST_ADD`, `createDbClient`, missing exception wrapping around `AsyncTask` + `co_await`, `co_await` inside a callback-style `HttpMiddleware`, blocking `sendRequest`, `session->operator[]`, Advice registered inside a handler |
+| `.h/.cc/.cpp` | `FILTER_ADD`, `ADD_MIDDLEWARE`, `METHOD_LIST_ADD`, `createDbClient`, unwrapped `AsyncTask` + `co_await`, `co_await` inside callback-style `HttpMiddleware`, blocking `sendRequest`, `session->operator[]`, Advice registered inside a handler |
 | `.csp` | `{{ }}`, `<%raw%>`, `<%viewpath`, `@@key@@`, `<%extends`, `{% if %}` |
 | `config.json/.yaml` | `"password"`, `"username"`, `"ssl"` as a string |
 | `test*.cc` | `done()`, `ASSERT_*`, `createDbClient` |
-
-> Fixed in v0.2.0: C++ identifier checks are now case-sensitive (no more false positives on `isDone()`); the hard callback-variable-naming rule that conflicted with CLAUDE.md examples was removed.
 
 ## Usage
 
@@ -148,6 +149,10 @@ AI: [uses drogon-create-controller] generates UserController.h + UserController.
 > Add a JWT auth filter
 AI: [uses drogon-gen-filter] generates JwtAuthFilter.h + the registration call...
 
+> Generate the ORM models from the production schema
+AI: [uses drogon-gen-orm-model] writes model.json, runs drogon_ctl create model,
+    wires the OBJECT library + orm_compat shim into CMake...
+
 > Write a test for the user registration endpoint
 AI: [uses drogon-gen-test] generates a DROGON_TEST(UserRegister) case...
 
@@ -157,54 +162,32 @@ AI: [consulting CLAUDE.md async discipline] This handler's early-return path nev
 
 ## Requirements
 
-- Claude Code CLI installed
+- Claude Code or ZCode
 - A project that **depends on the drogon framework** (drogon installed as a library)
-- A Python 3 interpreter on `PATH` (required by the PostToolUse hook)
+- Rules injection (SessionStart): works out of the box — needs a bash (Git Bash on Windows is what both hosts already require)
+- Violation scanning (PostToolUse): optional, needs a Python 3 interpreter somewhere on the machine
 
 ## Repository structure
 
 ```
-├── .claude-plugin/
-│   ├── plugin.json
-│   └── marketplace.json
+├── .claude-plugin/         # Claude Code manifest + marketplace entry
+├── .zcode-plugin/          # ZCode manifest (mirrors .claude-plugin)
 ├── .github/workflows/
-│   ├── ci.yml             # plugin structure + CLI smoke tests
-│   └── publish.yml        # tag-triggered → PyPI + npm + GitHub Release
-├── scripts/               # build helpers (asset sync + smoke tests)
-│   ├── sync-assets.py/.mjs
-│   └── dev-smoke-test.py/.mjs
+│   ├── ci.yml              # 3-OS matrix: structure + hooks + CLI smoke tests
+│   └── publish.yml         # tag-triggered → PyPI + npm + GitHub Release
+├── scripts/                # build helpers (asset sync + smoke tests)
 ├── hooks/
-│   ├── hooks.json
-│   └── posttooluse.py
-├── src/drogon_plugin/     # PyPI package (CLI installer)
-│   ├── __init__.py
-│   └── cli.py
-├── npm/                   # npm package (CLI installer)
-│   ├── package.json
-│   └── bin/cli.js
-├── skills/                # 17 code-generation skills
-│   ├── drogon-create-controller/
-│   ├── drogon-gen-advice/
-│   ├── drogon-gen-cmake/
-│   ├── drogon-gen-coroutine-handler/
-│   ├── drogon-gen-csp-view/
-│   ├── drogon-gen-db-config/
-│   ├── drogon-gen-file-upload/
-│   ├── drogon-gen-filter/
-│   ├── drogon-gen-http-client/
-│   ├── drogon-gen-lambda-handler/
-│   ├── drogon-gen-middleware/
-│   ├── drogon-gen-orm-crud/
-│   ├── drogon-gen-plugin/
-│   ├── drogon-gen-redis-config/
-│   ├── drogon-gen-session-auth/
-│   ├── drogon-gen-test/
-│   └── drogon-setup-config/
-├── CLAUDE.md
-├── LICENSE
-├── README.md
-├── README.zh-CN.md
-└── pyproject.toml           # PyPI packaging config
+│   ├── hooks.json          # SessionStart + PostToolUse registration
+│   ├── run-hook.cmd        # cross-platform polyglot launcher
+│   ├── session-start       # pure-shell rules injection
+│   ├── post-tool-use       # finds a Python 3, degrades gracefully
+│   └── posttooluse.py      # violation scanner
+├── skills/                 # 22 code-generation skills
+├── tests/                  # pytest: scanners, structure, hook e2e
+├── src/drogon_plugin/      # PyPI package (CLI installer)
+├── npm/                    # npm package (CLI installer)
+├── CLAUDE.md               # rules layer
+└── CHANGELOG.md
 ```
 
 ## License

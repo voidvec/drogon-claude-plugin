@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# SessionStart hook for the drogon plugin - injects CLAUDE.md rules as
+# additionalContext. Pure shell on purpose: no interpreter dependency, so it
+# runs identically on Windows (Git Bash), Linux and macOS, in both Claude Code
+# and ZCode. Protocol: read JSON event from stdin (ignored), write a single
+# JSON object to stdout, diagnostics to stderr only.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Host-provided plugin root wins; fall back to the script location so the hook
+# also works when neither CLAUDE_PLUGIN_ROOT nor ZCODE_PLUGIN_ROOT is exported.
+ROOT="${CLAUDE_PLUGIN_ROOT:-${ZCODE_PLUGIN_ROOT:-$PLUGIN_ROOT}}"
+RULES="$ROOT/CLAUDE.md"
+
+[ -f "$RULES" ] || exit 0
+
+# Escape content for embedding as a JSON string value using bash parameter
+# substitution (single pass each, no external process needed).
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# $(cat ...) drops trailing newlines, which is fine for a JSON string value.
+content="$(cat "$RULES")"
+[ -n "$content" ] || exit 0
+
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' \
+    "$(escape_for_json "$content")"

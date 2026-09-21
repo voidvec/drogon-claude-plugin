@@ -1,0 +1,17 @@
+# 钩子脚本是 bash/cmd polyglot，CRLF 会破坏 bash 解析（\r 注入命令），
+# 必须在所有平台都以 LF 入库、以 LF 检出。
+# 注意：通配规则在前，特例在后（后匹配的属性覆盖先匹配的）。
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.bat text eol=crlf
+
+# cmd polyglot 启动器：Unix 侧由 bash 解释，必须 LF；cmd.exe 对无 goto 的
+# LF 批处理兼容良好（本仓库唯一 .cmd 即 run-hook.cmd）。
+*.cmd text eol=lf

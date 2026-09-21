@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-test
 description: 生成 drogon DROGON_TEST 测试用例，支持单元测试、集成测试、异步数据库测试等类型。
-version: 0.1.0
+version: 0.2.0
 ---
 
 # drogon-gen-test

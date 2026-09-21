@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * npm 包端到端冒烟测试：验证 CLI 的 install / verify / uninstall 到临时目录。
+ * npm 包端到端冒烟测试：验证 CLI 的 install / verify / upgrade / uninstall
+ * 到临时目录（v0.2.0 布局：资产在 .drogon-plugin/，项目根文件不受影响）。
  * 用法: node scripts/dev-smoke-test.mjs  （或 npm test）
  */
 import { execFileSync } from 'node:child_process'
@@ -40,6 +41,10 @@ async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drogon-npm-smoke-'))
   const target = path.join(tmp, 'proj')
   fs.mkdirSync(target, { recursive: true })
+  const plugin = path.join(target, '.drogon-plugin')
+
+  // 项目自有文件：安装/升级/卸载全程不得触碰
+  fs.writeFileSync(path.join(target, 'CLAUDE.md'), '# 我的项目\n', 'utf-8')
 
   let r = run(['version'])
   if (r.status !== 0) throw new Error(`version 失败: ${r.stderr}`)
@@ -47,14 +52,25 @@ async function main() {
 
   r = run(['install', '--target', target])
   if (r.status !== 0) throw new Error(`install 失败: ${r.stderr}`)
-  for (const rel of ['.claude-plugin/plugin.json', 'CLAUDE.md', 'hooks/posttooluse.py']) {
-    if (!fs.existsSync(path.join(target, rel)))
+  for (const rel of [
+    '.claude-plugin/plugin.json',
+    '.zcode-plugin/plugin.json',
+    'CLAUDE.md',
+    'hooks/hooks.json',
+    'hooks/run-hook.cmd',
+    'hooks/session-start',
+    'hooks/post-tool-use',
+    'hooks/posttooluse.py',
+  ]) {
+    if (!fs.existsSync(path.join(plugin, rel)))
       throw new Error(`install 后缺少 ${rel}`)
   }
   const skills = fs
-    .readdirSync(path.join(target, 'skills'), { withFileTypes: true })
+    .readdirSync(path.join(plugin, 'skills'), { withFileTypes: true })
     .filter((d) => d.isDirectory())
-  if (skills.length !== 17) throw new Error(`skills 数 ${skills.length} != 17`)
+  if (skills.length !== 22) throw new Error(`skills 数 ${skills.length} != 22`)
+  if (fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf-8') !== '# 我的项目\n')
+    throw new Error('install 覆盖了项目自有 CLAUDE.md')
   console.log('install OK')
 
   r = run(['verify', '--target', target])
@@ -62,9 +78,16 @@ async function main() {
     throw new Error(`verify 未通过: ${r.stdout} ${r.stderr}`)
   console.log('verify OK')
 
+  r = run(['upgrade', '--target', target])
+  if (r.status !== 0 || !String(r.stdout).includes('已是最新'))
+    throw new Error(`upgrade(同版本) 未通过: ${r.stdout} ${r.stderr}`)
+  console.log('upgrade OK')
+
   r = run(['uninstall', '--target', target])
-  if (r.status !== 0 || fs.existsSync(path.join(target, 'skills')))
+  if (r.status !== 0 || fs.existsSync(plugin))
     throw new Error(`uninstall 未清空: ${r.stderr}`)
+  if (fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf-8') !== '# 我的项目\n')
+    throw new Error('uninstall 误删了项目自有 CLAUDE.md')
   console.log('uninstall OK')
 
   fs.rmSync(tmp, { recursive: true, force: true })

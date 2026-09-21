@@ -17,5 +17,6 @@
     "http-server",
     "orm",
     "backend"
-  ]
+  ],
+  "skills": "skills"
 }
