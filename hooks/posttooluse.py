@@ -2,6 +2,15 @@
 """PostToolUse hook for drogon plugin.
 Detects common drogon API violations in C++/CSP/config files after edits.
 Outputs warnings via systemMessage; never blocks (PostToolUse is post-hoc).
+
+Also usable as a standalone scanner for hosts without hooks (Gemini/Qoder/
+Trae/...) and for CI:
+
+    python posttooluse.py --scan [--format human|json] [--strict] PATH...
+
+Each PATH is a file or directory (walked recursively); only files whose
+category matches a violation list are reported. All paths must stay under
+the current working directory. --strict exits 1 when violations are found.
 """
 import json
 import os
@@ -187,7 +196,97 @@ def extract_new_text(tool_input: dict) -> Optional[str]:
 # Main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Standalone scan mode (no-hook hosts + CI)
+# ---------------------------------------------------------------------------
+
+
+def _iter_scannable(root: str):
+    """Yield files under root whose category has a violation list."""
+    if os.path.isfile(root):
+        if file_category(str(root)) is not None:
+            yield root
+        return
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in ("__pycache__", ".git", "node_modules", "build")]
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            if file_category(p) is not None:
+                yield p
+
+
+def scan_paths(paths, fmt: str = "human", strict: bool = False) -> int:
+    """Scan files/directories; print report; return process exit code."""
+    cwd = os.path.realpath(os.getcwd())
+    resolved = []
+    for p in paths:
+        rp = os.path.realpath(p)
+        # 边界护栏:被扫描路径必须在当前工作目录之内,防任意路径读取
+        if not (rp == cwd or rp.startswith(cwd + os.sep)):
+            print(f"refused: {p} is outside the working directory", file=sys.stderr)
+            return 2
+        resolved.append(rp)
+
+    findings = []  # list of {file, violations: [msg]}
+    for rp in resolved:
+        for f in _iter_scannable(rp):
+            category = file_category(f)
+            violations = violations_map_for(category)
+            try:
+                text = open(f, encoding="utf-8", errors="ignore").read()
+            except OSError:
+                continue
+            hits = scan_text(text, violations)
+            if hits:
+                # 去重保序
+                seen = []
+                for h in hits:
+                    if h not in seen:
+                        seen.append(h)
+                findings.append({"file": os.path.relpath(f, cwd), "violations": seen})
+
+    if fmt == "json":
+        print(json.dumps({"findings": findings, "total": sum(len(x["violations"]) for x in findings)},
+                         ensure_ascii=False, indent=2))
+    else:
+        if not findings:
+            print("✅ no drogon API violations found")
+        for item in findings:
+            print(f"🔍 {item['file']}")
+            for v in item["violations"]:
+                print(f"   - {v}")
+        total = sum(len(x["violations"]) for x in findings)
+        if total:
+            print(f"\n共 {total} 处违规(文件 {len(findings)} 个);修复后重跑,或 CI 用 --strict 拦截")
+    return 1 if (strict and findings) else 0
+
+
+def violations_map_for(category: str) -> List[Violation]:
+    m = {
+        "cpp": CPP_VIOLATIONS,
+        "csp": CSP_VIOLATIONS,
+        "config": CONFIG_VIOLATIONS,
+        "test": TEST_VIOLATIONS + CPP_VIOLATIONS,
+    }
+    return m.get(category, [])
+
+
 def main():
+    # --scan 模式:独立扫描器(无钩子宿主 / CI),不走 stdin hook 协议
+    if "--scan" in sys.argv[1:]:
+        args = [a for a in sys.argv[1:] if a != "--scan"]
+        strict = "--strict" in args
+        args = [a for a in args if a != "--strict"]
+        fmt = "human"
+        if "--format" in args:
+            i = args.index("--format")
+            fmt = args[i + 1]
+            del args[i:i + 2]
+        if not args:
+            print("usage: posttooluse.py --scan [--format json] [--strict] PATH...", file=sys.stderr)
+            return 2
+        return scan_paths(args, fmt=fmt, strict=strict)
+
     try:
         input_data = json.load(sys.stdin)
     except (json.JSONDecodeError, IOError):
@@ -241,4 +340,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

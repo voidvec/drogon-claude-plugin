@@ -158,8 +158,8 @@ PLACEHOLDER = re.compile(r"\bTODO\b|\bFIXME\b|<your[-_ ][^>]+>|YOUR_API_KEY")
 
 
 def test_no_unresolved_placeholders_in_plugin_assets():
-    targets = [REPO_ROOT / "CLAUDE.md"]
-    for root in ("skills", "hooks", ".claude-plugin", ".zcode-plugin"):
+    targets = [REPO_ROOT / "CLAUDE.md", REPO_ROOT / "AGENTS.md", REPO_ROOT / "GEMINI.md"]
+    for root in ("skills", "hooks", ".claude-plugin", ".zcode-plugin", ".codex-plugin", ".agents"):
         base = REPO_ROOT / root
         if base.is_dir():
             targets += [p for p in base.rglob("*") if p.is_file() and "__pycache__" not in p.parts]

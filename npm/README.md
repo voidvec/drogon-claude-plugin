@@ -30,12 +30,14 @@ drogon-claude-plugin install
 # Validate the installed structure (skill count / hooks / manifests / version consistency)
 drogon-claude-plugin verify
 
-# Upgrade the installed assets to the bundled version (migrates v0.1.x layouts)
-drogon-claude-plugin upgrade
-
 # Remove the installed assets (ownership-checked; never touches your code)
 drogon-claude-plugin uninstall
 ```
+
+> **v0.3.0 note**: the npm CLI covers Claude Code / ZCode bundle installation. Multi-host installation
+> (`--host codex|cursor|copilot|gemini|qoder|codebuddy|trae|agents`) and `scan` are provided by the
+> **PyPI CLI** (`pipx install drogon-claude-plugin`) — the reference implementation. Host-native
+> installs (Codex marketplace, Gemini extensions) work directly from this repository without any CLI.
 
 Enable the plugin through your host's official mechanism (the CLI prints these hints too):
 

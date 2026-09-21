@@ -1,0 +1,28 @@
+{
+  "name": "drogon",
+  "version": "0.3.0",
+  "description": "Drogon C++ 后端开发规则与技能: 基于 Drogon 框架编写正确的异步代码, 避开回调/事件循环等高频陷阱。适用于 Claude Code、ZCode、Codex、Cursor、VS Code (Copilot)、Gemini CLI 等 coding agent。",
+  "author": {
+    "name": "voidvec"
+  },
+  "homepage": "https://github.com/voidvec/drogon-claude-plugin#readme",
+  "repository": "https://github.com/voidvec/drogon-claude-plugin",
+  "license": "MIT",
+  "keywords": [
+    "drogon",
+    "cpp",
+    "c++",
+    "web-framework",
+    "async",
+    "http-server",
+    "orm",
+    "backend"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Drogon C++ Backend",
+    "shortDescription": "Drogon C++ 后端开发规则与技能(异步回调/事件循环纪律 + 22 个代码生成技能)",
+    "category": "Software development"
+  }
+}

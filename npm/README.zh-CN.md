@@ -28,12 +28,11 @@ drogon-claude-plugin install
 # 校验已安装插件结构（技能数 / 钩子 / 清单 / 版本一致性）
 drogon-claude-plugin verify
 
-# 升级到随包版本（自动迁移 v0.1.x 根目录布局）
-drogon-claude-plugin upgrade
-
 # 卸载（逐项归属校验，绝不误删你的业务代码）
 drogon-claude-plugin uninstall
 ```
+
+> **v0.3.0 说明**：npm CLI 提供 Claude Code / ZCode bundle 安装。多宿主安装（`--host codex|cursor|copilot|gemini|qoder|codebuddy|trae|agents`）与 `scan` 由 **PyPI CLI**（`pipx install drogon-claude-plugin`，参考实现）提供；Codex marketplace / Gemini extensions 等宿主原生安装直接用本仓库即可，无需 CLI。
 
 通过宿主官方机制启用插件（CLI 也会打印这些提示）：
 

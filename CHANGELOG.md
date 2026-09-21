@@ -6,6 +6,35 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-21
+
+多宿主版本:Codex / Cursor / VS Code (Copilot) / Gemini CLI / Qoder / CodeBuddy / Trae / 通用 `.agents` 接入(方案与两轮对抗性评审见 `docs/INTEGRATION-PLAN-v0.3.0.md`、`docs/INTEGRATION-REVIEW-v0.3.0.md`;全部宿主落点依据官方文档实读)。
+
+### Added
+
+- **仓库级宿主产物**(由 `scripts/gen-host-artifacts.py` 从单一事实源生成,`VERSION` 文件为版本唯一来源):
+  - `AGENTS.md` / `GEMINI.md`:CLAUDE.md 去宿主专有内容的中立规则层;
+  - `.codex-plugin/plugin.json` + `.agents/plugins/marketplace.json`(Codex 原生格式,policy 三件套):`codex plugin marketplace add voidvec/drogon-claude-plugin` 即装;
+  - `gemini-extension.json`:`gemini extensions install <repo>` 即装(skills 自动发现 + GEMINI.md 上下文)。
+- **CLI v3(PyPI,参考实现)**:
+  - `install --host <claude|zcode|codex|cursor|copilot|agents|gemini|qoder|codebuddy|trae|all>`,`all` 含互斥规则(有专有清单的宿主不重复落 `.agents/skills`);
+  - **指令文件三态保护**:AGENTS.md/GEMINI.md/CODEBUDDY.md 已存在时默认跳过并打印合并指引,`--force-agents` 才追加标记段,卸载只删标记段;
+  - `scan [--format json] [--strict] [路径...]`:无钩子宿主 / CI 违规扫描(进程内执行,路径限定项目内);
+  - `hosts` 子命令;`verify` 逐宿主报告;`uninstall --host` 按宿主清理;安装戳 `.drogon-plugin-install.json` 记录全部落点。
+- **posttooluse.py `--scan` 模式**:独立扫描器(文件/目录参数、human/json 输出、`--strict` 退出码、cwd 边界护栏)。
+- **测试**:新增 `tests/test_hosts.py`(18 例:生成器产物、Codex policy 字段、三态保护、互斥落盘、per-host 卸载、scan 契约、九处清单版本一致性),套件 47 例全绿。
+- **CI/发布**:publish.yml 断言 tag == VERSION == 全部清单版本 + 宿主产物最新;ci.yml 增加生成器 `--check`。
+
+### Changed
+
+- sync-assets:发行资产纳入 AGENTS.md/GEMINI.md/gemini-extension.json/.codex-plugin;`.agents/`(Codex 市场发现入口)不入资产。
+
+### Known limitations(如实声明)
+
+- npm CLI 保持 v0.2 行为(bundle 安装/校验/卸载,与 0.3.0 资产完全兼容):多宿主 `--host` 与 `scan` 暂仅 PyPI CLI 提供(安全扫描器对 Node 侧动态路径子进程模式的持续误报,按风险权衡推迟;行为差异已在 README 标注)。
+- 行为性验证(各宿主真实会话中技能触发)为一次性人工步骤,清单见评审文档 §Phase C;结构性验证已自动化入 CI。
+- Codex 对本仓库 legacy `.claude-plugin/marketplace.json` 的兼容度、Cursor hooks 事件模型为待实测项(不阻塞使用;`.agents/plugins/marketplace.json` 为 Codex 主路径)。
+
 ## [0.2.0] - 2026-09-20
 
 生产级跨平台与双宿主版本：Windows / Linux / macOS 三平台安装-升级-卸载全链路，Claude Code 与 ZCode 双宿主，技能层补齐官方文档全部功能域。
@@ -68,7 +97,8 @@
 - PostToolUse 钩子：编辑后自动扫描 drogon API 违规并告警
 - PyPI / npm 双发行包（CLI 安装器）、GitHub Actions（ci.yml / publish.yml）
 
-[Unreleased]: https://github.com/voidvec/drogon-claude-plugin/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/voidvec/drogon-claude-plugin/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/voidvec/drogon-claude-plugin/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/voidvec/drogon-claude-plugin/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/voidvec/drogon-claude-plugin/releases/tag/v0.1.2
 [0.1.1]: https://github.com/voidvec/drogon-claude-plugin/releases/tag/v0.1.1

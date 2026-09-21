@@ -79,10 +79,10 @@ def main() -> int:
         print("❌ verify 未通过")
         return 1
 
-    # upgrade（同版本 → 提示已是最新）
+    # upgrade(幂等重装:标记段替换为最新,产物齐全)
     rc, out = run(["upgrade", "--target", str(target)])
-    if rc != 0 or "已是最新" not in out:
-        print("❌ upgrade(同版本) 未通过")
+    if rc != 0 or "安装完成" not in out or not plugin.exists():
+        print("❌ upgrade 未通过")
         return 1
 
     # uninstall

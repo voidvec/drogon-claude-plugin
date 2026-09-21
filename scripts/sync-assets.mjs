@@ -10,8 +10,10 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
-const ASSETS = ['skills', 'hooks', '.claude-plugin', '.zcode-plugin']
-const FILES = ['CLAUDE.md']
+// 注意:.agents/(Codex 对本仓库的 marketplace 发现入口)是仓库级元数据,
+// 不进发行资产——不能被 CLI 装进用户项目。
+const ASSETS = ['skills', 'hooks', '.claude-plugin', '.zcode-plugin', '.codex-plugin']
+const FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md', 'gemini-extension.json']
 const DEST = path.join(REPO_ROOT, 'npm', 'assets')
 
 // 需要排除的中间产物目录（如 Python 字节码缓存）
@@ -83,11 +85,15 @@ function check() {
       if (!a.equals(b)) return false
     }
   }
-  // CLAUDE.md
-  const src = path.join(REPO_ROOT, 'CLAUDE.md')
-  const dst = path.join(DEST, 'CLAUDE.md')
-  if (!fs.existsSync(dst)) return false
-  if (!fs.readFileSync(src).equals(fs.readFileSync(dst))) return false
+  // 散文件(FILES)
+  for (const name of FILES) {
+    const src = path.join(REPO_ROOT, name)
+    const dst = path.join(DEST, name)
+    if (fs.existsSync(src)) {
+      if (!fs.existsSync(dst)) return false
+      if (!fs.readFileSync(src).equals(fs.readFileSync(dst))) return false
+    }
+  }
   return true
 }
 

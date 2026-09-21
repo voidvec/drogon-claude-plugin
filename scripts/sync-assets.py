@@ -15,8 +15,10 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ASSETS = ("skills", "hooks", ".claude-plugin", ".zcode-plugin")
-FILES = ("CLAUDE.md",)
+ASSETS = ("skills", "hooks", ".claude-plugin", ".zcode-plugin", ".codex-plugin")
+# 注意:.agents/(Codex 对本仓库的 marketplace 发现入口)是仓库级元数据,
+# 不进发行资产——不能被 CLI 装进用户项目。
+FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md", "gemini-extension.json")
 DEST = REPO_ROOT / "src" / "drogon_plugin" / "drogon_plugin_assets"
 
 # 需要排除的中间产物目录（如 Python 字节码缓存）
@@ -46,7 +48,7 @@ def sync() -> int:
 
             shutil.copytree(src, dest_assets / name, ignore=_ignore)
             count += sum(1 for _ in _iter_files(src))
-    for name in ("CLAUDE.md",):
+    for name in FILES:
         src = REPO_ROOT / name
         if src.is_file():
             shutil.copy2(src, dest_assets / name)
@@ -69,6 +71,12 @@ def check() -> bool:
             if s.relative_to(src) != d.relative_to(dst):
                 return False
             if not filecmp.cmp(s, d, shallow=False):
+                return False
+    for name in FILES:
+        src = REPO_ROOT / name
+        dst = DEST / name
+        if src.is_file():
+            if not dst.is_file() or not filecmp.cmp(src, dst, shallow=False):
                 return False
     return True
 

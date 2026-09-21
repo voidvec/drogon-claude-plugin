@@ -1,6 +1,6 @@
 # drogon-claude-plugin
 
-> **Coding-agent plugin for Drogon C++ backend development** — AI-assisted development rules and code-generation skills that keep the assistant writing *correct* asynchronous code, avoiding classic callback / event-loop pitfalls. Works with **Claude Code** and **ZCode** on **Windows / Linux / macOS**.
+> **Coding-agent plugin for Drogon C++ backend development** — AI-assisted development rules and code-generation skills that keep the assistant writing *correct* asynchronous code, avoiding classic callback / event-loop pitfalls. Works with **Claude Code, ZCode, Codex, Cursor, VS Code (Copilot), Gemini CLI, Qoder, CodeBuddy, Trae** and any **AGENTS.md**-compatible agent on **Windows / Linux / macOS**.
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -15,36 +15,38 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code/plugins) / [ZCode
 
 ## Installation
 
-### Option A: Marketplace (recommended, both hosts)
+### Option A: Host-native installation (recommended)
 
-**Claude Code:**
+| Host | Install | What you get |
+|------|---------|--------------|
+| **Claude Code** | `claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin` → `claude plugin install drogon` | skills + rules injection + PostToolUse hook |
+| **ZCode** | Add the same marketplace in ZCode's plugin manager → install `drogon` | same as Claude Code |
+| **Codex CLI** | `codex plugin marketplace add voidvec/drogon-claude-plugin` → `codex plugin install drogon@drogon-claude-plugin`; then **review & trust** in the `/plugins` panel (plugin hooks don't run until trusted) | skills + AGENTS.md rules + hooks |
+| **Cursor** | `drogon-claude-plugin install --host cursor` in your project → `.cursor/skills/` + `.cursor/rules/` | skills + rules |
+| **VS Code (Copilot)** | `drogon-claude-plugin install --host copilot` → `.agents/skills/` + `AGENTS.md` | skills + rules |
+| **Gemini CLI** | `gemini extensions install https://github.com/voidvec/drogon-claude-plugin` | skills + GEMINI.md context |
+| **Qoder** | `drogon-claude-plugin install` (drops `AGENTS.md`) | rules |
+| **CodeBuddy** | `drogon-claude-plugin install` (drops `CODEBUDDY.md`) | rules |
+| **Trae** | `drogon-claude-plugin install` (drops `.trae/rules/`) | rules |
 
-```bash
-# Add the marketplace source (first time only)
-claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin
-
-# Install / update / uninstall
-claude plugin install drogon
-claude plugin update drogon
-claude plugin uninstall drogon
-```
-
-**ZCode:** add the same marketplace (`https://github.com/voidvec/drogon-claude-plugin`) in ZCode's plugin manager, then install the `drogon` plugin. ZCode reads the standard Claude plugin format, so everything — skills, hooks, rules injection — works the same.
+Maintenance tiers: **Tier 1** (actively maintained) — Claude Code, ZCode, Codex, Cursor, VS Code + `.agents` fallback. **Best effort** — Gemini CLI, Qoder, CodeBuddy, Trae.
 
 ### Option B: npm / PyPI (CLI installer)
 
-The npm and PyPI packages **bundle the exact same plugin assets** and expose a single `drogon-claude-plugin` command. Assets are installed into a self-contained `.drogon-plugin/` directory inside your project — your own files (including your `CLAUDE.md`) are never touched.
+The npm and PyPI packages **bundle the exact same plugin assets** and expose a single `drogon-claude-plugin` command. Multi-host installation (`--host`, `scan`, instruction-file protection) is implemented in the **PyPI CLI (reference implementation)**; the npm CLI installs the Claude/ZCode bundle (`.drogon-plugin/`).
 
 ```bash
-# npm (no installation needed, run on the fly)
+# npm — bundle install for Claude Code / ZCode
 npx drogon-claude-plugin install
 
-# or PyPI (recommended for persistent use)
+# PyPI — multi-host installer (reference implementation)
 pipx install drogon-claude-plugin
-drogon-claude-plugin install
+drogon-claude-plugin install                 # all hosts (mutual-exclusion aware)
+drogon-claude-plugin install --host cursor   # one host
+drogon-claude-plugin install --host copilot  # opt-in .agents/skills
 ```
 
-> The installer only **distributes and materializes** the assets. It does not replace the host's plugin mechanism — after installing you register the local copy once with `claude plugin install .drogon-plugin --scope project` (the CLI prints the exact commands for both hosts).
+> **Your own files are never touched**: if `AGENTS.md` / `GEMINI.md` / `CODEBUDDY.md` already exists, the CLI skips it and prints merge guidance; with `--force-agents` it appends a `<!-- drogon-plugin begin/end -->` marker section, and uninstall removes only that section.
 
 ### Option C: Install from source
 
@@ -69,10 +71,12 @@ You should see **22 skills** and **2 hooks** (SessionStart + PostToolUse).
 
 | Command | What it does |
 |---------|--------------|
-| `drogon-claude-plugin install [--target DIR]` | Copies the plugin assets into `<DIR>/.drogon-plugin/` and prints per-host enable steps |
-| `drogon-claude-plugin verify [--target DIR]` | Validates the installed structure (skills / hooks / manifests / version consistency) |
-| `drogon-claude-plugin upgrade [--target DIR]` | Upgrades the installed assets to the bundled version (migrates v0.1.x root layouts automatically) |
-| `drogon-claude-plugin uninstall [--target DIR]` | Removes the plugin assets — every removed item is ownership-checked, your own `CLAUDE.md` is never deleted |
+| `drogon-claude-plugin install [--host LIST] [--force-agents]` | Installs per host: bundle for Claude/ZCode, `.cursor/skills` + rules for Cursor, instruction files for Codex/Gemini/Qoder/CodeBuddy, `.trae/rules` for Trae; `all` respects mutual exclusion (no `.agents/skills` duplication) |
+| `drogon-claude-plugin scan [--format json] [--strict] [PATH...]` | Violation scan for hosts without hooks and for CI (exit 1 with `--strict`); paths are boundary-checked to stay inside the project |
+| `drogon-claude-plugin hosts` | Lists supported hosts and their install kind |
+| `drogon-claude-plugin verify [--target DIR]` | Validates the installed structure and reports per-host status |
+| `drogon-claude-plugin upgrade [--target DIR]` | Idempotent reinstall to the bundled version (marker sections refreshed) |
+| `drogon-claude-plugin uninstall [--host LIST]` | Removes plugin artifacts — ownership-checked; your own instruction files keep everything except our marker section |
 
 ## What's inside
 

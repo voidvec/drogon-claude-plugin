@@ -31,6 +31,10 @@ jobs:
           test "$(ls -d skills/*/ | wc -l)" -eq 22
           echo "skill count OK"
 
+      - name: Assert host artifacts generated & versions consistent
+        shell: bash
+        run: python scripts/gen-host-artifacts.py --check
+
       - name: Run test suite (structure + hook scanners + hook e2e)
         shell: bash
         run: |

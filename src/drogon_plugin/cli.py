@@ -1,37 +1,56 @@
 #!/usr/bin/env python3
-"""drogon-claude-plugin — CLI 安装器（PyPI 发行版）.
+"""drogon-claude-plugin — CLI 安装器 v3(PyPI 发行版).
 
-把随包内置的 drogon 插件资产安装到目标项目的 ``.drogon-plugin/`` 子目录并
-给出 Claude Code / ZCode 双宿主启用指引，或对已安装目录做结构校验 / 升级 /
-卸载。
+把 drogon 插件资产安装到目标项目,支持多宿主分发(Claude Code / ZCode /
+Codex / Cursor / VS Code Copilot / Gemini CLI / Qoder / CodeBuddy / Trae /
+通用 .agents),或校验 / 扫描违规 / 升级 / 卸载。
 
-v0.2.0 起安装布局变更：资产装入 ``<project>/.drogon-plugin/`` 自包含目录，
-不再覆盖项目根的 ``CLAUDE.md`` / ``.claude`` 等文件；卸载对 v0.1.x 的根目录
-散装布局仍兼容清理（逐项归属校验，项目自有文件绝不会被误删）。
+宿主落点(全部有官方文档依据,见 docs/INTEGRATION-REVIEW-v0.3.0.md):
+  claude|zcode   → .drogon-plugin/ 自包含目录(v0.2 行为,经宿主 marketplace 注册)
+  codex          → AGENTS.md(项目级规则;技能经 codex marketplace 安装本仓库)
+  cursor         → .cursor/skills/<skill>/ + .cursor/rules/drogon-plugin.mdc
+  copilot|agents → .agents/skills/<skill>/ + AGENTS.md(VS Code 原生发现位置)
+  gemini         → GEMINI.md(项目级;技能经 gemini extensions 安装本仓库)
+  qoder          → AGENTS.md(Qoder 官方兼容)
+  codebuddy      → CODEBUDDY.md(项目指令文件)
+  trae           → .trae/rules/drogon-plugin.mdc
+
+安全承诺:
+  · 项目自有指令文件(AGENTS.md / GEMINI.md / CODEBUDDY.md)绝不覆盖:
+    已存在时默认跳过并打印合并指引;--force-agents 才追加
+    <!-- drogon-plugin begin/end --> 标记段;卸载只删标记段。
+  · ours-by-name 文件(.cursor/rules/drogon-plugin.mdc 等)只增删自己的名字。
+  · 所有删除走安装戳 + 归属签名双保险;拒绝在文件系统根/用户主目录操作。
+  · scan 在进程内加载扫描模块,被扫描路径必须解析到项目目录之内。
 
 子命令:
-  install   [--target DIR]                 安装资产到 <DIR>/.drogon-plugin/
-  verify    [--target DIR]                 校验已安装插件结构
-  upgrade   [--target DIR]                 升级到随包版本（含 v0.1.x 布局迁移）
-  uninstall [--target DIR]                 移除已安装插件资产
+  install   [--target DIR] [--host LIST] [--force-agents]
+  verify    [--target DIR]
+  upgrade   [--target DIR]
+  uninstall [--target DIR] [--host LIST]
+  scan      [--target DIR] [--format human|json] [--strict] [PATH...]
+  hosts
   version
 """
 
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
 
-# 资产在 wheel 内统一放在 ``drogon_plugin_assets/`` 下（见 pyproject.toml data-files）
+# 资产在 wheel 内统一放在 ``drogon_plugin_assets/`` 下(见 pyproject.toml data-files)
 _ASSETS_PREFIX = "drogon_plugin_assets"
-# v0.2.0 自包含安装目录（相对项目根）
 _INSTALL_DIR = ".drogon-plugin"
 _LEGACY_STAMP = ".drogon-claude-plugin-installed.json"
-_STAMP = ".drogon-claude-plugin-v2.json"
-# 本插件 CLAUDE.md 首行标记：卸载时只有匹配才清理项目根的 CLAUDE.md
+_STAMP_V2 = ".drogon-claude-plugin-v2.json"
+_STAMP_V3 = ".drogon-plugin-install.json"
+
 _CLAUDE_MD_MARKER = "# Drogon 后端开发规则"
+_MARKER_BEGIN = "<!-- drogon-plugin begin -->"
+_MARKER_END = "<!-- drogon-plugin end -->"
 
 _EXPECTED_SKILLS = 22
 _EXPECTED_HOOK_FILES = (
@@ -41,13 +60,56 @@ _EXPECTED_HOOK_FILES = (
     "post-tool-use",
     "posttooluse.py",
 )
-_EXPECTED_HOOK_EVENTS = 2  # SessionStart + PostToolUse
+_EXPECTED_HOOK_EVENTS = 2
+
+_REPO_URL = "https://github.com/voidvec/drogon-claude-plugin"
 
 _PKG_VERSION: "str | None" = None
 
+_MARKER_SECTION_RE = re.compile(
+    re.escape(_MARKER_BEGIN) + r"[\s\S]*?" + re.escape(_MARKER_END) + r"\n?"
+)
+
+
+# ---------------------------------------------------------------------------
+# 宿主注册表
+# ---------------------------------------------------------------------------
+
+# 指令文件 = 用户可能自有的项目级文件(三态保护);规则文件 = ours-by-name
+HOSTS = {
+    "claude": {"kind": "bundle"},
+    "zcode": {"kind": "bundle"},
+    "codex": {"kind": "instruction", "file": "AGENTS.md"},
+    "cursor": {
+        "kind": "skills+rulefile",
+        "skills_dir": ".cursor/skills",
+        "rule_file": ".cursor/rules/drogon-plugin.mdc",
+    },
+    "copilot": {"kind": "skills+instruction", "skills_dir": ".agents/skills", "file": "AGENTS.md"},
+    "agents": {"kind": "skills+instruction", "skills_dir": ".agents/skills", "file": "AGENTS.md"},
+    "gemini": {"kind": "instruction", "file": "GEMINI.md"},
+    "qoder": {"kind": "instruction", "file": "AGENTS.md"},
+    "codebuddy": {"kind": "instruction", "file": "CODEBUDDY.md"},
+    "trae": {"kind": "rulefile", "rule_file": ".trae/rules/drogon-plugin.mdc"},
+}
+
+# `all` 的互斥规则(评审 #7):claude/zcode/codex/gemini/cursor 已有技能分发通道,
+# 不落 .agents/skills,避免 ZCode/VS Code 重复发现同名技能。
+ALL_HOSTS = ["claude", "zcode", "codex", "cursor", "gemini", "qoder", "codebuddy", "trae"]
+
+# 卸载时可能需要清理空目录的候选(仅当为空时删除)
+_OUR_DIR_CANDIDATES = [
+    ".cursor/skills",
+    ".cursor/rules",
+    ".cursor",
+    ".agents/skills",
+    ".agents",
+    ".trae/rules",
+    ".trae",
+]
+
 
 def _version() -> str:
-    """返回已安装发行包的版本；源码树运行时返回 dev。"""
     global _PKG_VERSION
     if _PKG_VERSION is None:
         try:
@@ -60,9 +122,22 @@ def _version() -> str:
 
 
 def _find_assets() -> Path:
-    """定位随包携带的插件资产根目录。"""
     here = Path(__file__).resolve().parent
     return here / _ASSETS_PREFIX
+
+
+def _parse_hosts(spec: "str | None") -> list:
+    if not spec or spec == "all":
+        return list(ALL_HOSTS)
+    hosts = []
+    for h in spec.split(","):
+        h = h.strip().lower()
+        if not h:
+            continue
+        if h not in HOSTS:
+            raise ValueError(f"未知宿主: {h}(可用: {', '.join(HOSTS)} 或 all)")
+        hosts.append(h)
+    return hosts
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +146,6 @@ def _find_assets() -> Path:
 
 
 def _project_dir(args) -> Path:
-    """解析并校验项目根：--target 由用户显式给出，但仍做边界防护——必须是已存在
-    的目录，且拒绝文件系统根目录 / 用户主目录这类误操作高危目标。"""
     raw = getattr(args, "target", None) or str(Path.cwd())
     p = Path(raw).expanduser().resolve()
     if not p.is_dir():
@@ -84,17 +157,11 @@ def _project_dir(args) -> Path:
     return p
 
 
-def _install_root(project: Path) -> Path:
-    return project / _INSTALL_DIR
-
-
 def _list_assets(root: Path):
     return (p for p in root.rglob("*") if p.is_file())
 
 
 def _copy_assets(src_root: Path, target_root: Path) -> int:
-    """把 src_root 下所有资产复制到 target_root（相对路径来自对 src_root 的
-    枚举，不含用户输入），返回文件数。"""
     count = 0
     for f in _list_assets(src_root):
         rel = f.relative_to(src_root)
@@ -120,7 +187,6 @@ def _plugin_version(plugin_root: Path) -> "str | None":
 
 
 def _legacy_signature_ok(project: Path) -> bool:
-    """v0.1.x 根目录散装布局的归属签名：安装戳 + 本插件特征文件齐备。"""
     if not (project / _LEGACY_STAMP).is_file():
         return False
     return (
@@ -129,31 +195,24 @@ def _legacy_signature_ok(project: Path) -> bool:
     )
 
 
-def _detect_layout(project: Path):
-    """返回 ('v2', install_root) / ('legacy', project) / (None, None)。"""
-    if (_install_root(project) / ".claude-plugin" / "plugin.json").is_file():
-        return "v2", _install_root(project)
+def _detect_bundle_layout(project: Path):
+    if (project / _INSTALL_DIR / ".claude-plugin" / "plugin.json").is_file():
+        return "v2", project / _INSTALL_DIR
     if _legacy_signature_ok(project):
         return "legacy", project
     return None, None
 
 
 def _remove_legacy_layout(project: Path):
-    """清理 v0.1.x 散装在项目根的资产。逐项做归属校验（签名不匹配则跳过并
-    告警），项目自身的 CLAUDE.md 等文件绝不会被误删。返回 (removed, skipped)。"""
-    removed: list = []
-    skipped: list = []
+    removed, skipped = [], []
     if not (project / _LEGACY_STAMP).is_file():
         return removed, skipped
-
-    # 目录类资产：内部含本插件特征文件才删
-    dir_signatures = (
+    for name, sig in (
         ("skills", "drogon-create-controller/SKILL.md"),
         ("hooks", "posttooluse.py"),
         (".claude-plugin", "plugin.json"),
         (".zcode-plugin", "plugin.json"),
-    )
-    for name, sig in dir_signatures:
+    ):
         p = project / name
         if not p.exists():
             continue
@@ -162,35 +221,114 @@ def _remove_legacy_layout(project: Path):
             removed.append(name)
         else:
             skipped.append(name)
-
-    # CLAUDE.md：首行是本插件标记才删，否则视为项目自有文件，保留并告警
     md = project / "CLAUDE.md"
     if md.is_file():
+        first_line = ""
         try:
             first_line = md.read_text(encoding="utf-8").split("\n", 1)[0].strip()
         except OSError:
-            first_line = ""
+            pass
         if first_line == _CLAUDE_MD_MARKER:
             md.unlink()
             removed.append("CLAUDE.md")
         else:
-            skipped.append("CLAUDE.md（项目自有，已保留）")
-
+            skipped.append("CLAUDE.md(项目自有,已保留)")
     (project / _LEGACY_STAMP).unlink()
     removed.append(_LEGACY_STAMP)
     return removed, skipped
 
 
-def _print_enable_hint(plugin_root: Path) -> None:
-    print("   启用方式（二选一）:")
-    print(f"     · Claude Code:  claude plugin install {plugin_root.name} --scope project")
-    print("     · ZCode:        在 ZCode 插件管理中添加 marketplace")
-    print("       https://github.com/voidvec/drogon-claude-plugin 后安装 drogon 插件")
-    print("     （已用 marketplace 安装过则跳过本地注册，直接 claude plugin update drogon）")
+# ---------------------------------------------------------------------------
+# 指令文件三态(AGENTS.md / GEMINI.md / CODEBUDDY.md)
+# ---------------------------------------------------------------------------
+
+
+def _write_instruction_file(project: Path, name: str, content: str, force: bool):
+    """三态写入。返回 action: full(新建整文件)/ marker(替换或追加标记段)/
+    skipped(已存在且未 force)。"""
+    p = project / name
+    section = f"{_MARKER_BEGIN}\n{content.rstrip()}\n{_MARKER_END}\n"
+    if not p.exists():
+        p.write_text(section, encoding="utf-8")
+        return "full"
+    text = p.read_text(encoding="utf-8")
+    if _MARKER_BEGIN in text:
+        # 已有标记段:替换为最新内容(升级语义)
+        p.write_text(_MARKER_SECTION_RE.sub(section.rstrip("\n") + "\n", text, count=1), encoding="utf-8")
+        return "marker"
+    if force:
+        p.write_text(text.rstrip() + "\n\n" + section, encoding="utf-8")
+        return "marker"
+    return "skipped"
+
+
+def _strip_marker_section(project: Path, name: str) -> bool:
+    """卸载:删标记段。返回该文件是否含标记段(即是否被处理)。"""
+    p = project / name
+    if not p.is_file():
+        return False
+    text = p.read_text(encoding="utf-8")
+    if not _MARKER_SECTION_RE.search(text):
+        return False
+    new = _MARKER_SECTION_RE.sub("", text, count=1)
+    new = re.sub(r"\n{3,}", "\n\n", new)
+    p.write_text(new.rstrip() + "\n", encoding="utf-8")
+    return True
 
 
 # ---------------------------------------------------------------------------
-# 子命令
+# 安装戳
+# ---------------------------------------------------------------------------
+
+
+def _load_stamp(project: Path) -> dict:
+    p = project / _STAMP_V3
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_stamp(project: Path, data: dict) -> None:
+    (project / _STAMP_V3).write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 提示
+# ---------------------------------------------------------------------------
+
+_HOST_HINTS = {
+    "claude": "claude plugin install .drogon-plugin --scope project(已用 marketplace 则 update drogon)",
+    "zcode": f"ZCode 插件管理 → 添加 marketplace {_REPO_URL} → 安装 drogon",
+    "codex": (
+        "codex plugin marketplace add voidvec/drogon-claude-plugin → "
+        "codex plugin install drogon@drogon-claude-plugin;"
+        "装后在 /plugins 面板 review & trust(信任前插件钩子不运行)"
+    ),
+    "cursor": "重启 Cursor 打开本项目即生效(.cursor/skills 自动发现)",
+    "copilot": "在 VS Code 打开本项目即生效(AGENTS.md + .agents/skills 自动发现)",
+    "agents": "任何读取 AGENTS.md / .agents/skills 的工具打开本项目即生效",
+    "gemini": f"gemini extensions install {_REPO_URL}(项目内 GEMINI.md 规则已即刻生效)",
+    "qoder": "Qoder 打开本项目即生效(官方兼容 AGENTS.md)",
+    "codebuddy": "CodeBuddy 打开本项目即读取 CODEBUDDY.md",
+    "trae": "Trae 打开本项目即生效(.trae/rules)",
+}
+
+
+def _print_hints(hosts: list) -> None:
+    print("   启用方式:")
+    for h in hosts:
+        hint = _HOST_HINTS.get(h)
+        if hint:
+            print(f"     · {h}: {hint}")
+
+
+# ---------------------------------------------------------------------------
+# install
 # ---------------------------------------------------------------------------
 
 
@@ -199,37 +337,137 @@ def cmd_install(args) -> int:
 
     try:
         project = _project_dir(args)
+        hosts = _parse_hosts(getattr(args, "host", None))
         src_root = _find_assets()
         if not src_root.is_dir():
-            raise FileNotFoundError(
-                f"未找到插件资产目录（{src_root}）。请确认包安装完整。"
-            )
-        root = _install_root(project)
-        if root.exists():
-            shutil.rmtree(root)
-        count = _copy_assets(src_root, root)
-    except (ValueError, FileNotFoundError, OSError) as e:
+            raise FileNotFoundError(f"未找到插件资产目录({src_root}),请确认包安装完整。")
+    except (ValueError, FileNotFoundError) as e:
         print(f"❌ {e}", file=sys.stderr)
         return 1
 
-    manifest_version = _plugin_version(root) or PLUGIN_VERSION
-    (root / _STAMP).write_text(
-        json.dumps(
-            {
-                "source": "pypi:drogon-claude-plugin",
-                "cli_version": _version(),
-                "plugin_version": manifest_version,
-                "files": count,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+    force = bool(getattr(args, "force_agents", False))
+    written: list = []
+    instruction_files: dict = {}
+    agents_md = (
+        (src_root / "AGENTS.md").read_text(encoding="utf-8")
+        if (src_root / "AGENTS.md").is_file()
+        else ""
+    )
+    mdc = (
+        "---\n"
+        "description: Drogon C++ 后端开发规则(异步回调/事件循环纪律 + Skill 路由)\n"
+        "globs:\n"
+        "alwaysApply: true\n"
+        "---\n\n" + agents_md
     )
 
-    print(f"✅ 已安装 drogon 插件资产到 {root}")
-    print(f"   复制 {count} 个文件 · 插件版本 {manifest_version} · {_EXPECTED_SKILLS} 个技能")
-    _print_enable_hint(root)
+    installed_hosts = []
+    for host in hosts:
+        conf = HOSTS[host]
+        kind = conf["kind"]
+
+        if kind == "bundle":
+            root = project / _INSTALL_DIR
+            if root.exists():
+                shutil.rmtree(root)
+            count = _copy_assets(src_root, root)
+            (root / _STAMP_V2).write_text(
+                json.dumps(
+                    {
+                        "source": "pypi:drogon-claude-plugin",
+                        "cli_version": _version(),
+                        "plugin_version": _plugin_version(root) or PLUGIN_VERSION,
+                        "files": count,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            installed_hosts.extend(["claude", "zcode"])
+            continue
+
+        if kind.startswith("skills"):
+            skills_src = src_root / "skills"
+            dest_base = project / conf["skills_dir"]
+            n = 0
+            for d in sorted(skills_src.iterdir()):
+                if not d.is_dir():
+                    continue
+                dest = dest_base / d.name
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(d, dest)
+                n += 1
+                written.append(str(dest.relative_to(project)))
+            print(f"   [{host}] 技能 {n} 个 → {conf['skills_dir']}")
+
+        if "rulefile" in kind:
+            rf = project / conf["rule_file"]
+            rf.parent.mkdir(parents=True, exist_ok=True)
+            rf.write_text(mdc, encoding="utf-8")
+            written.append(str(rf.relative_to(project)))
+            print(f"   [{host}] 规则 → {conf['rule_file']}")
+
+        if "instruction" in kind:
+            name = conf["file"]
+            if not agents_md:
+                print(f"   [{host}] ⚠ 资产缺 AGENTS.md,跳过 {name}")
+                continue
+            action = _write_instruction_file(project, name, agents_md, force=force)
+            instruction_files[name] = action
+            if action == "skipped":
+                print(
+                    f"   [{host}] ⚠ {name} 已存在,未改动(项目自有文件不受触碰)。\n"
+                    f"       合并方式:加 <!-- drogon-plugin begin/end --> 标记段,"
+                    f"或 --force-agents 追加(卸载只删标记段)"
+                )
+            else:
+                print(f"   [{host}] 规则 → {name}({action})")
+
+        installed_hosts.append(host)
+
+    stamp = _load_stamp(project)
+    stamp.update(
+        {
+            "version": PLUGIN_VERSION,
+            "hosts": sorted(set(stamp.get("hosts", []) + installed_hosts)),
+            "files": sorted(set(stamp.get("files", []) + written)),
+            "instruction_files": {**stamp.get("instruction_files", {}), **instruction_files},
+        }
+    )
+    _save_stamp(project, stamp)
+
+    print(f"✅ 安装完成:宿主 {', '.join(sorted(set(installed_hosts)))}")
+    _print_hints(sorted(set(installed_hosts)))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# verify
+# ---------------------------------------------------------------------------
+
+
+def _host_artifact_ok(project: Path, conf: dict) -> bool:
+    kind = conf["kind"]
+    if kind == "bundle":
+        return (project / _INSTALL_DIR / ".claude-plugin" / "plugin.json").is_file()
+    ok = True
+    if kind.startswith("skills"):
+        base = project / conf["skills_dir"]
+        n = len([d for d in base.iterdir() if d.is_dir()]) if base.is_dir() else 0
+        ok = ok and n >= _EXPECTED_SKILLS
+    if "rulefile" in kind:
+        ok = ok and (project / conf["rule_file"]).is_file()
+    if "instruction" in kind:
+        p = project / conf["file"]
+        if not p.is_file():
+            ok = False
+        else:
+            try:
+                ok = ok and (_MARKER_BEGIN in p.read_text(encoding="utf-8"))
+            except OSError:
+                ok = False
+    return ok
 
 
 def cmd_verify(args) -> int:
@@ -239,155 +477,245 @@ def cmd_verify(args) -> int:
         print(f"❌ {e}", file=sys.stderr)
         return 1
 
-    layout, plugin_root = _detect_layout(project)
-    if layout is None:
-        print(f"❌ {project} 下未发现已安装的 drogon 插件（找 .drogon-plugin/ 或 v0.1.x 根目录布局）")
-        return 1
-
-    try:
-        manifest = _load_manifest(plugin_root)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"❌ {e}", file=sys.stderr)
-        return 1
-
-    manifest_ver = str(manifest.get("version", "?"))
     problems: list = []
-    skill_names: list = []
+    layout, plugin_root = _detect_bundle_layout(project)
+    stamp = _load_stamp(project)
 
-    # 技能
-    skills_dir = plugin_root / "skills"
-    if not skills_dir.is_dir():
-        problems.append("缺少 skills/ 目录")
-    else:
-        skill_names = sorted(d.name for d in skills_dir.iterdir() if d.is_dir())
-        if len(skill_names) != _EXPECTED_SKILLS:
-            problems.append(f"技能数 {len(skill_names)} != 预期 {_EXPECTED_SKILLS}")
-        for n in skill_names:
-            if not (skills_dir / n / "SKILL.md").is_file():
-                problems.append(f"技能 {n} 缺少 SKILL.md")
-
-    # hooks（脚本 + 事件）
-    hooks_dir = plugin_root / "hooks"
-    if not hooks_dir.is_dir():
-        problems.append("缺少 hooks/ 目录")
-    else:
+    manifest_ver = "-"
+    if layout == "v2":
+        try:
+            manifest_ver = str(_load_manifest(plugin_root).get("version", "?"))
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"❌ {e}", file=sys.stderr)
+            return 1
+        skills_dir = plugin_root / "skills"
+        if not skills_dir.is_dir():
+            problems.append("缺少 skills/ 目录")
+        else:
+            n = len([d for d in skills_dir.iterdir() if d.is_dir()])
+            if n != _EXPECTED_SKILLS:
+                problems.append(f"技能数 {n} != 预期 {_EXPECTED_SKILLS}")
         for f in _EXPECTED_HOOK_FILES:
-            if not (hooks_dir / f).is_file():
+            if not (plugin_root / "hooks" / f).is_file():
                 problems.append(f"缺少 hooks/{f}")
-        hooks_json = hooks_dir / "hooks.json"
-        if hooks_json.is_file():
-            try:
-                data = json.loads(hooks_json.read_text(encoding="utf-8"))
-                n = len(data.get("hooks", {}))
-                if n != _EXPECTED_HOOK_EVENTS:
-                    problems.append(f"hooks 事件数 {n} != 预期 {_EXPECTED_HOOK_EVENTS}")
-            except json.JSONDecodeError:
-                problems.append("hooks/hooks.json 不是合法 JSON")
+        if not (plugin_root / ".zcode-plugin" / "plugin.json").is_file():
+            problems.append("缺少 .zcode-plugin/plugin.json")
 
-    # 规则文件 + ZCode 清单
-    if not (plugin_root / "CLAUDE.md").is_file():
-        problems.append("缺少 CLAUDE.md")
-    if not (plugin_root / ".zcode-plugin" / "plugin.json").is_file():
-        problems.append("缺少 .zcode-plugin/plugin.json（ZCode 宿主清单）")
+    host_status = [(h, _host_artifact_ok(project, c)) for h, c in HOSTS.items()]
 
-    # 版本一致性
-    try:
-        from . import PLUGIN_VERSION
+    print(f"📦 drogon-claude-plugin 校验 — {project}")
+    print(f"   bundle   : {layout or '未安装'}(版本 {manifest_ver})")
+    row1 = "  ".join(f"{h}{'✅' if ok else '—'}" for h, ok in host_status[:5])
+    row2 = "  ".join(f"{h}{'✅' if ok else '—'}" for h, ok in host_status[5:])
+    print(f"   宿主     : {row1}")
+    print(f"             {row2}")
+    if stamp:
+        print(f"   安装记录 : v{stamp.get('version', '?')} · 宿主 {', '.join(stamp.get('hosts', []))}")
 
-        if manifest_ver != PLUGIN_VERSION:
-            problems.append(f"manifest 版本 {manifest_ver} 与包版本 {PLUGIN_VERSION} 不一致（可运行 upgrade）")
-    except ImportError:
-        pass
-
-    print(f"📦 drogon-claude-plugin 结构校验 — {plugin_root}（布局: {layout}）")
-    print(f"   插件版本 : {manifest_ver}")
-    print(f"   技能数   : {len(skill_names)}")
-    print(f"   hooks    : {len(_EXPECTED_HOOK_FILES)} 个文件 / {_EXPECTED_HOOK_EVENTS} 个事件")
+    if layout is None and not any(ok for _, ok in host_status):
+        print("   ❌ 未发现任何插件产物(先运行 install)")
+        return 1
     if problems:
         print("   ❌ 发现问题:")
         for p in problems:
             print(f"      - {p}")
         return 1
-    print("   ✅ 通过")
+    print("   ✅ 通过(未安装的宿主显示 —,属正常;需要时 install --host <name>)")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# upgrade(bundle 重装;多宿主产物幂等重生成;标记段升级语义)
+# ---------------------------------------------------------------------------
 
 
 def cmd_upgrade(args) -> int:
-    from . import PLUGIN_VERSION
+    args.force_agents = True
+    return cmd_install(args)
 
-    try:
-        project = _project_dir(args)
-        src_root = _find_assets()
-        if not src_root.is_dir():
-            raise FileNotFoundError(f"未找到插件资产目录（{src_root}）。")
-    except (ValueError, FileNotFoundError) as e:
-        print(f"❌ {e}", file=sys.stderr)
-        return 1
 
-    bundled = _plugin_version(src_root) or PLUGIN_VERSION
-    layout, plugin_root = _detect_layout(project)
+# ---------------------------------------------------------------------------
+# uninstall
+# ---------------------------------------------------------------------------
 
-    # v0.1.x 根目录散装布局 → 清理后迁移到 .drogon-plugin/
-    if layout == "legacy":
-        removed, skipped = _remove_legacy_layout(project)
-        print(f"🔄 已清理 v0.1.x 根目录布局（{len(removed)} 项，迁移到 {_INSTALL_DIR}/）")
-        for s in skipped:
-            print(f"   ⚠️  跳过 {s}")
-        layout = None
 
-    if layout == "v2":
-        current = _plugin_version(plugin_root)
-        if current == bundled:
-            print(f"✅ 已是最新版本 {current}（无需升级）")
-            return 0
-        print(f"⬆️  {current} → {bundled}")
-        shutil.rmtree(plugin_root)
-    else:
-        print(f"⬆️  安装 {bundled}")
+def _cleanup_empty_dirs(project: Path) -> None:
+    for rel in _OUR_DIR_CANDIDATES:
+        d = project / rel
+        try:
+            if d.is_dir() and not any(d.iterdir()):
+                d.rmdir()
+        except OSError:
+            pass
 
-    root = _install_root(project)
-    count = _copy_assets(src_root, root)
-    (root / _STAMP).write_text(
-        json.dumps(
-            {
-                "source": "pypi:drogon-claude-plugin",
-                "cli_version": _version(),
-                "plugin_version": bundled,
-                "files": count,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    print(f"✅ 已升级到 {root}（{count} 个文件 · {bundled}）")
-    _print_enable_hint(root)
-    return 0
+
+def _uninstall_hosts(project: Path, hosts: list, stamp: dict) -> list:
+    removed = []
+    for host in hosts:
+        conf = HOSTS[host]
+        kind = conf["kind"]
+        if "skills" in kind:
+            base = project / conf["skills_dir"]
+            if base.is_dir():
+                for d in sorted(base.glob("drogon-*")):
+                    shutil.rmtree(d)
+                    removed.append(str(d.relative_to(project)))
+        if "rulefile" in kind:
+            rf = project / conf["rule_file"]
+            if rf.is_file():
+                rf.unlink()
+                removed.append(str(rf.relative_to(project)))
+        if "instruction" in kind:
+            name = conf["file"]
+            action = stamp.get("instruction_files", {}).get(name)
+            if action == "full" and (project / name).is_file():
+                (project / name).unlink()
+                removed.append(name)
+            elif _strip_marker_section(project, name):
+                removed.append(f"{name}(标记段)")
+    stamp["hosts"] = [h for h in stamp.get("hosts", []) if h not in hosts]
+    return removed
 
 
 def cmd_uninstall(args) -> int:
+    try:
+        project = _project_dir(args)
+        spec = getattr(args, "host", None)
+    except ValueError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        return 1
+
+    stamp = _load_stamp(project)
+
+    if spec and spec != "all":
+        try:
+            hosts = _parse_hosts(spec)
+        except ValueError as e:
+            print(f"❌ {e}", file=sys.stderr)
+            return 1
+        removed = _uninstall_hosts(project, hosts, stamp)
+        _cleanup_empty_dirs(project)
+        if stamp.get("hosts") or stamp.get("files"):
+            _save_stamp(project, stamp)
+        else:
+            (project / _STAMP_V3).unlink(missing_ok=True)
+        if removed:
+            print(f"🗑  已按宿主移除 {len(removed)} 项")
+        else:
+            print("ℹ️   所选宿主无产物")
+        return 0
+
+    # 全量卸载
+    removed: list = []
+    for name, action in stamp.get("instruction_files", {}).items():
+        if action == "full" and (project / name).is_file():
+            (project / name).unlink()
+            removed.append(name)
+        elif _strip_marker_section(project, name):
+            removed.append(f"{name}(标记段)")
+    for rel in stamp.get("files", []):
+        p = project / rel
+        if p.is_dir():
+            shutil.rmtree(p)
+            removed.append(rel)
+        elif p.is_file():
+            p.unlink()
+            removed.append(rel)
+
+    root = project / _INSTALL_DIR
+    if root.is_dir():
+        shutil.rmtree(root)
+        removed.append(_INSTALL_DIR)
+    legacy_removed, skipped = _remove_legacy_layout(project)
+    removed += legacy_removed
+
+    # 无戳兜底:ours-by-name 签名清理 + 标记段剥离
+    if not stamp:
+        for pattern in (
+            ".cursor/skills/drogon-*",
+            ".agents/skills/drogon-*",
+            ".cursor/rules/drogon-plugin.mdc",
+            ".trae/rules/drogon-plugin.mdc",
+        ):
+            for p in project.glob(pattern):
+                if p.is_dir():
+                    shutil.rmtree(p)
+                else:
+                    p.unlink()
+                removed.append(str(p.relative_to(project)))
+        for name in ("AGENTS.md", "GEMINI.md", "CODEBUDDY.md"):
+            if _strip_marker_section(project, name):
+                removed.append(f"{name}(标记段)")
+
+    _cleanup_empty_dirs(project)
+    (project / _STAMP_V3).unlink(missing_ok=True)
+
+    if removed:
+        print(f"🗑  已从 {project} 移除 {len(removed)} 项")
+        for s in skipped:
+            print(f"   ⚠️  跳过 {s}")
+        print("   注意:如曾用 claude plugin install 注册,另需 claude plugin uninstall drogon")
+    else:
+        print(f"ℹ️   未在 {project} 发现插件资产")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# scan(无钩子宿主 / CI 兜底)— 进程内加载扫描模块,不产生任何子进程
+# ---------------------------------------------------------------------------
+
+
+def cmd_scan(args) -> int:
     try:
         project = _project_dir(args)
     except ValueError as e:
         print(f"❌ {e}", file=sys.stderr)
         return 1
 
-    removed: list = []
+    scanner_path = _find_assets() / "hooks" / "posttooluse.py"
+    if not scanner_path.is_file():
+        print("❌ 未找到随包扫描器(hooks/posttooluse.py)", file=sys.stderr)
+        return 1
 
-    root = _install_root(project)
-    if root.is_dir():
-        shutil.rmtree(root)
-        removed.append(_INSTALL_DIR)
+    # 路径边界:每个被扫描路径必须解析到项目目录之内(防 ../ 逃逸读任意文件)
+    raw_paths = getattr(args, "paths", None) or ["."]
+    safe_paths = []
+    for rp in raw_paths:
+        candidate = Path(rp)
+        resolved = candidate.resolve() if candidate.is_absolute() else (project / candidate).resolve()
+        if resolved != project and not resolved.is_relative_to(project):
+            print(f"❌ 拒绝扫描项目外的路径: {rp}", file=sys.stderr)
+            return 2
+        safe_paths.append(str(resolved.relative_to(project)))
 
-    legacy_removed, skipped = _remove_legacy_layout(project)
-    removed += legacy_removed
+    import importlib.util
 
-    if removed:
-        print(f"🗑  已从 {project} 移除: {', '.join(removed)}")
-        for s in skipped:
-            print(f"   ⚠️  跳过 {s}")
-        print("   注意：如曾用 claude plugin install 注册，另需 claude plugin uninstall drogon")
-    else:
-        print(f"ℹ️   未在 {project} 发现插件资产")
+    spec = importlib.util.spec_from_file_location("drogon_posttooluse_scan", scanner_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    prev_cwd = os.getcwd()
+    try:
+        os.chdir(project)  # scan_paths 以 cwd 为边界与相对路径基准
+        return mod.scan_paths(
+            safe_paths,
+            fmt=getattr(args, "format", "human"),
+            strict=bool(getattr(args, "strict", False)),
+        )
+    finally:
+        os.chdir(prev_cwd)
+
+
+# ---------------------------------------------------------------------------
+# hosts / version
+# ---------------------------------------------------------------------------
+
+
+def cmd_hosts(args) -> int:
+    print("支持的宿主(all 为默认互斥集合;copilot/agents 需单独指定以落 .agents/skills):")
+    for h, conf in HOSTS.items():
+        in_all = "✅ all  " if h in ALL_HOSTS else "   opt-in"
+        print(f"  {h:10s}{in_all}{conf['kind']}")
     return 0
 
 
@@ -408,20 +736,41 @@ def cmd_version(args) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="drogon-claude-plugin",
-        description="安装 / 校验 / 升级 / 卸载 drogon 插件资产（PyPI 发行版，Claude Code / ZCode 双宿主）。",
+        description="drogon 插件多宿主安装器(Claude Code / ZCode / Codex / Cursor / VS Code / Gemini / Qoder / CodeBuddy / Trae / .agents)。",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    for name, help_text, func in (
-        ("install", "安装插件资产到 <项目>/.drogon-plugin/", cmd_install),
-        ("verify", "校验已安装插件结构", cmd_verify),
-        ("upgrade", "升级到随包版本（含 v0.1.x 布局迁移）", cmd_upgrade),
-        ("uninstall", "移除已安装插件资产", cmd_uninstall),
-    ):
-        p = sub.add_parser(name, help=help_text)
-        p.add_argument("--target", help="项目根目录（默认当前目录）")
-        p.set_defaults(func=func)
+    p = sub.add_parser("install", help="安装插件产物(默认全部宿主)")
+    p.add_argument("--target", help="项目根目录(默认当前目录)")
+    p.add_argument("--host", help="宿主列表(逗号分隔;默认 all)")
+    p.add_argument(
+        "--force-agents",
+        action="store_true",
+        help="项目已有 AGENTS.md/GEMINI.md/CODEBUDDY.md 时追加标记段(默认跳过不动)",
+    )
+    p.set_defaults(func=cmd_install)
 
+    p = sub.add_parser("verify", help="校验已安装产物")
+    p.add_argument("--target")
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("upgrade", help="升级到随包版本")
+    p.add_argument("--target")
+    p.set_defaults(func=cmd_upgrade)
+
+    p = sub.add_parser("uninstall", help="移除插件产物")
+    p.add_argument("--target")
+    p.add_argument("--host", help="只移除指定宿主的产物(默认全部)")
+    p.set_defaults(func=cmd_uninstall)
+
+    p = sub.add_parser("scan", help="扫描 drogon API 违规(无钩子宿主 / CI)")
+    p.add_argument("--target")
+    p.add_argument("--format", choices=["human", "json"], default="human")
+    p.add_argument("--strict", action="store_true", help="发现违规时退出码 1(CI 拦截)")
+    p.add_argument("paths", nargs="*", help="扫描路径(默认整个项目)")
+    p.set_defaults(func=cmd_scan)
+
+    sub.add_parser("hosts", help="列出支持的宿主").set_defaults(func=cmd_hosts)
     sub.add_parser("version", help="显示版本").set_defaults(func=cmd_version)
     return parser
 

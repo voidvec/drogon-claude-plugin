@@ -1,6 +1,6 @@
 # drogon-claude-plugin
 
-> **Drogon C++ 后端开发 coding agent 插件** — 提供 AI 辅助开发规则与代码生成技能，让 AI 写出正确的异步代码，避开回调 / 事件循环等高频陷阱。**Claude Code 与 ZCode 双宿主**，**Windows / Linux / macOS** 全平台可用。
+> **Drogon C++ 后端开发 coding agent 插件** — 提供 AI 辅助开发规则与代码生成技能，让 AI 写出正确的异步代码，避开回调 / 事件循环等高频陷阱。支持 **Claude Code、ZCode、Codex、Cursor、VS Code (Copilot)、Gemini CLI、Qoder、CodeBuddy、Trae** 及任何读 **AGENTS.md** 的工具，**Windows / Linux / macOS** 全平台可用。
 
 [English](README.md) | **简体中文**
 
@@ -15,36 +15,38 @@
 
 ## 安装
 
-### 方式 A：通过 marketplace（推荐，双宿主）
+### 方式 A：宿主原生安装（推荐）
 
-**Claude Code：**
+| 宿主 | 安装 | 获得内容 |
+|------|------|---------|
+| **Claude Code** | `claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin` → `claude plugin install drogon` | 技能 + 规则注入 + PostToolUse 钩子 |
+| **ZCode** | 在 ZCode 插件管理添加同一 marketplace → 安装 `drogon` | 与 Claude Code 一致 |
+| **Codex CLI** | `codex plugin marketplace add voidvec/drogon-claude-plugin` → `codex plugin install drogon@drogon-claude-plugin`;装后在 `/plugins` 面板 **review & trust**（信任前插件钩子不运行） | 技能 + AGENTS.md 规则 + 钩子 |
+| **Cursor** | 项目内 `drogon-claude-plugin install --host cursor` → `.cursor/skills/` + `.cursor/rules/` | 技能 + 规则 |
+| **VS Code (Copilot)** | `drogon-claude-plugin install --host copilot` → `.agents/skills/` + `AGENTS.md` | 技能 + 规则 |
+| **Gemini CLI** | `gemini extensions install https://github.com/voidvec/drogon-claude-plugin` | 技能 + GEMINI.md 上下文 |
+| **Qoder** | `drogon-claude-plugin install`（落 `AGENTS.md`） | 规则 |
+| **CodeBuddy** | `drogon-claude-plugin install`（落 `CODEBUDDY.md`） | 规则 |
+| **Trae** | `drogon-claude-plugin install`（落 `.trae/rules/`） | 规则 |
 
-```bash
-# 添加 marketplace 源（首次）
-claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin
-
-# 安装 / 升级 / 卸载
-claude plugin install drogon
-claude plugin update drogon
-claude plugin uninstall drogon
-```
-
-**ZCode：** 在 ZCode 的插件管理中添加同一 marketplace（`https://github.com/voidvec/drogon-claude-plugin`），然后安装 `drogon` 插件。ZCode 直接兼容标准 Claude 插件格式——技能、钩子、规则注入行为完全一致。
+维护分层：**一级维护**（持续跟进规范变化）— Claude Code、ZCode、Codex、Cursor、VS Code + `.agents` 兜底；**尽力维护** — Gemini CLI、Qoder、CodeBuddy、Trae。
 
 ### 方式 B：通过 npm / PyPI（CLI 安装器）
 
-npm 与 PyPI 两种包**内置同一份插件资产**，提供 `install` / `verify` / `upgrade` / `uninstall` / `version` 子命令。资产装入项目内自包含的 `.drogon-plugin/` 子目录——**绝不触碰项目自有文件**（包括你自己的 `CLAUDE.md`）。
+npm 与 PyPI 两包**内置同一份插件资产**。多宿主安装（`--host`、`scan`、指令文件保护）以 **PyPI CLI 为参考实现**；npm CLI 提供 Claude/ZCode bundle 安装（`.drogon-plugin/`）。
 
 ```bash
-# npm（免安装，直接跑）
+# npm — Claude Code / ZCode bundle 安装
 npx drogon-claude-plugin install
 
-# 或 PyPI（推荐，可持久使用）
+# PyPI — 多宿主安装器（参考实现）
 pipx install drogon-claude-plugin
-drogon-claude-plugin install
+drogon-claude-plugin install                 # 全部宿主（含互斥规则）
+drogon-claude-plugin install --host cursor   # 单宿主
+drogon-claude-plugin install --host copilot  # 显式落 .agents/skills
 ```
 
-> CLI 安装器只负责**分发与落盘**资产，不替代宿主的插件机制——安装后按 CLI 打印的指引执行一次本地注册（`claude plugin install .drogon-plugin --scope project`，或 ZCode 走 marketplace），之后升级用 `drogon-claude-plugin upgrade` 或 `claude plugin update drogon`。
+> **项目自有文件绝不被触碰**：`AGENTS.md` / `GEMINI.md` / `CODEBUDDY.md` 已存在时默认跳过并打印合并指引；`--force-agents` 才追加 `<!-- drogon-plugin begin/end -->` 标记段，卸载只删标记段。
 
 ### 方式 C：从源码安装
 
@@ -69,10 +71,12 @@ drogon-claude-plugin verify         # CLI 安装器（任意宿主皆可校验�
 
 | 命令 | 作用 |
 |------|------|
-| `drogon-claude-plugin install [--target DIR]` | 把插件资产装入 `<DIR>/.drogon-plugin/`，并打印双宿主启用指引 |
-| `drogon-claude-plugin verify [--target DIR]` | 校验已安装结构（技能/钩子/清单/版本一致性） |
-| `drogon-claude-plugin upgrade [--target DIR]` | 升级到随包版本（自动迁移 v0.1.x 根目录布局） |
-| `drogon-claude-plugin uninstall [--target DIR]` | 移除插件资产——逐项归属校验，项目自有 `CLAUDE.md` 绝不会被误删 |
+| `drogon-claude-plugin install [--host LIST] [--force-agents]` | 按宿主落产物：Claude/ZCode 走 bundle，Cursor 落 `.cursor/skills`+规则，Codex/Gemini/Qoder/CodeBuddy 落指令文件，Trae 落 `.trae/rules`；`all` 遵循互斥规则（不重复落 `.agents/skills`） |
+| `drogon-claude-plugin scan [--format json] [--strict] [路径...]` | 无钩子宿主 / CI 的违规扫描（`--strict` 发现违规退出码 1）；路径限定在项目内 |
+| `drogon-claude-plugin hosts` | 列出支持的宿主与接入方式 |
+| `drogon-claude-plugin verify [--target DIR]` | 校验已安装结构并逐宿主报告状态 |
+| `drogon-claude-plugin upgrade [--target DIR]` | 幂等重装到随包版本（标记段刷新） |
+| `drogon-claude-plugin uninstall [--host LIST]` | 移除插件产物——逐项归属校验；项目自有指令文件只删我们的标记段 |
 
 ## 插件构成
 
