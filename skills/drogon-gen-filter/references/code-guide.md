@@ -7,7 +7,7 @@ Extract from user input:
 - `filter_type`: Filter type (`auth`/`rate_limit`/`input_validation`, default `auth`)
 - `reject_status`: HTTP status code when rejected (default `401`)
 
-## Forbidden APIs
+## 禁止模式清单
 
 - `FILTER_ADD` macro — **does not exist**, use `app().registerFilter(...)` to register
 - `HttpFilter<ClassName>` without `AutoCreation` — must write `HttpFilter<ClassName, false>`, otherwise `registerFilter()`'s `static_assert(!T::isAutoCreation)` causes compilation failure (`HttpAppFramework.h:696-699`)

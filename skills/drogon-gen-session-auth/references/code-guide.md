@@ -7,7 +7,7 @@ Extract from user input:
 - `auth_mode`: `login` / `logout` / `check` (required)
 - `user_field`: session key for user id (optional, default `userId`)
 
-## Forbidden APIs
+## 禁止模式清单
 
 - `session->operator[](key)` — returns `std::any&`, needs `any_cast`, error-prone. Use `getOptional<T>()` or `modify<T>()`. (Session.h)
 - Calling `req->session()` without `app().enableSession(...)` first — undefined.

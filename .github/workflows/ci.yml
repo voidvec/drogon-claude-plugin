@@ -23,21 +23,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install pinned dev dependencies
+        shell: bash
+        run: pip install -r requirements-dev.txt
 
       - name: Validate manifests are valid JSON
         shell: bash
         run: |
           python -c "import json,glob; [json.load(open(f,encoding='utf-8')) for f in glob.glob('.claude-plugin/*.json')+glob.glob('.zcode-plugin/*.json')+glob.glob('hooks/*.json')]; print('manifests OK')"
 
-      - name: Assert expected skill count (22)
+      - name: Assert skill inventory sanity (floor, not a magic number)
         shell: bash
         run: |
-          test "$(ls -d skills/*/ | wc -l)" -eq 22
-          echo "skill count OK"
+          n="$(ls -d skills/*/ | wc -l)"
+          test "$n" -ge 20
+          echo "skill count OK: $n"
 
       - name: Assert host artifacts generated & versions consistent
         shell: bash
         run: python scripts/gen-host-artifacts.py --check
+
+      - name: Cross-artifact consistency gate
+        shell: bash
+        run: python scripts/check-consistency.py
 
       - name: Generate packaged assets for CLI tests
         shell: bash
@@ -45,9 +56,7 @@ jobs:
 
       - name: Run test suite (structure + hook scanners + hook e2e)
         shell: bash
-        run: |
-          pip install pytest
-          python -m pytest tests/ -v
+        run: python -m pytest tests/ -v
 
       - name: Python syntax check for hook
         shell: bash
@@ -80,15 +89,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install build & test deps
+      - name: Install pinned build & test deps
         shell: bash
-        run: pip install build pytest
+        run: pip install -r requirements-dev.txt
 
       - name: Build + install PyPI CLI in a venv
         shell: bash
@@ -121,3 +132,9 @@ jobs:
       - name: npm asset-sync check
         shell: bash
         run: node scripts/sync-assets.mjs --check
+
+      - name: npm CLI capability declaration
+        shell: bash
+        run: |
+          node npm/bin/cli.js --capabilities \
+            | python -c "import json,sys; d=json.load(sys.stdin); assert d['commands'], d; print('npm capabilities OK:', d['commands'])"

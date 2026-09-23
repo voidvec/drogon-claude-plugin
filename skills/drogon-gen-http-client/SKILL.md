@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-http-client
-description: 生成 drogon 出站 HTTP 请求代码（异步回调 / 协程 / 反向代理 forward），含 ReqResult 检查与 timeout。
-version: 0.1.0
+description: 需要发起 drogon 出站 HTTP 请求（异步回调 / 协程 / 反向代理 forward）时，生成含 ReqResult 检查与 timeout 的代码。
+license: MIT
 ---
 
 # drogon-gen-http-client

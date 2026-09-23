@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-db-config
-description: 生成 drogon 项目的数据库配置（config.json 片段），支持 PostgreSQL、MySQL、SQLite3。
-version: 0.1.0
+description: 需要配置 drogon 数据库连接（db_clients）时，生成 PostgreSQL / MySQL / SQLite3 的 config.json 片段，含键名与 SQL 注入防护纪律。
+license: MIT
 ---
 
 # drogon-gen-db-config

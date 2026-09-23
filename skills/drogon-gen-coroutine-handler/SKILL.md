@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-coroutine-handler
-description: 生成 drogon 协程 handler / 协程中间件 / 协程 ORM 调用，正确区分 Task/AsyncTask，强制裸 handler 参数按值传递。
-version: 0.1.0
+description: 需要编写 drogon 协程 handler / 协程中间件 / 协程 ORM 调用时，生成 Task/AsyncTask 正确用法（裸 handler 参数按值传递）。
+license: MIT
 ---
 
 # drogon-gen-coroutine-handler

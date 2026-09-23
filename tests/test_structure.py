@@ -13,7 +13,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-EXPECTED_SKILLS = 22
+# 技能数量不硬编码:单一事实源是 skills/ 目录本身(见 scripts/gen-host-artifacts.py)。
+# 这里只保留下限哨兵——防止误删整个技能目录却无人察觉。
+MIN_EXPECTED_SKILLS = 20
 
 EXPECTED_NEW_SKILLS = (
     "drogon-gen-orm-model",
@@ -45,22 +47,67 @@ def _version_from_pyproject():
 
 def test_skill_inventory():
     skills = _skills()
-    assert len(skills) == EXPECTED_SKILLS, f"skills: {len(skills)} != {EXPECTED_SKILLS}: {skills}"
+    assert len(skills) >= MIN_EXPECTED_SKILLS, f"skills: {len(skills)} < {MIN_EXPECTED_SKILLS}: {skills}"
     for name in EXPECTED_NEW_SKILLS:
         assert name in skills, f"missing new skill {name}"
+
+
+# Agent Skills 规范允许的 SKILL.md frontmatter 字段白名单。
+# 依据:Claude Code 文档明确 —— claude.ai 上传 / Skills API / package_skill.py 打包路径
+# 只接受 name / description / license / compatibility / metadata / allowed-tools，
+# 出现其它键是**硬失败**(Unexpected key(s) in SKILL.md frontmatter),不是忽略。
+# 本仓库技能同时经 .agents/skills 分发,所以必须严格限定在该白名单内。
+ALLOWED_FRONTMATTER_KEYS = frozenset(
+    {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+)
+# description 在技能列表中的截断上限(Claude Code 文档:与 when_to_use 合计 1536 字符)。
+MAX_DESCRIPTION_CHARS = 1536
+
+
+def _frontmatter_of(name: str) -> str:
+    text = (REPO_ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+    assert text.startswith("---"), f"{name}: SKILL.md must start with frontmatter"
+    return text.split("---", 2)[1]
+
+
+def _frontmatter_keys(fm: str) -> set:
+    keys = set()
+    for line in fm.splitlines():
+        m = re.match(r"^([A-Za-z0-9_-]+)\s*:", line)
+        if m:
+            keys.add(m.group(1))
+    return keys
 
 
 def test_every_skill_has_skill_md_with_frontmatter():
     for name in _skills():
         skill_md = REPO_ROOT / "skills" / name / "SKILL.md"
         assert skill_md.is_file(), f"{name}: missing SKILL.md"
-        text = skill_md.read_text(encoding="utf-8")
-        assert text.startswith("---"), f"{name}: SKILL.md must start with frontmatter"
-        fm = text.split("---", 2)[1]
+        fm = _frontmatter_of(name)
         m = re.search(r"^name:\s*(\S+)", fm, re.M)
         assert m and m.group(1) == name, f"{name}: frontmatter name mismatch"
         assert re.search(r"^description:\s*\S", fm, re.M), f"{name}: missing description"
-        assert re.search(r"^version:\s*\S", fm, re.M), f"{name}: missing version"
+        assert re.search(r"^license:\s*\S", fm, re.M), f"{name}: missing license"
+        # 规范级约束:只允许白名单键(自定义键会导致打包/上传硬失败)
+        extra = _frontmatter_keys(fm) - ALLOWED_FRONTMATTER_KEYS
+        assert not extra, f"{name}: disallowed frontmatter keys {sorted(extra)}"
+
+
+def test_skill_description_is_trigger_first_and_within_cap():
+    for name in _skills():
+        fm = _frontmatter_of(name)
+        desc = re.search(r"^description:\s*(.+)$", fm, re.M).group(1).strip()
+        assert len(desc) <= MAX_DESCRIPTION_CHARS, f"{name}: description too long ({len(desc)})"
+        # 触发词优先:统一"需要……时，…"句式,便于模型按场景匹配
+        assert desc.startswith("需要") and "时" in desc, (
+            f"{name}: description should be trigger-first ('需要……时，…'): {desc[:48]}"
+        )
+
+
+# code-guide 的结构契约:每个技能的知识文档必须含"禁止模式清单"章节与至少一个
+# 围栏模板块 —— SKILL.md 的「参考文件」行正是这样向模型承诺的(声明必须为真)。
+MIN_CODE_GUIDE_LINES = 70
+REQUIRED_GUIDE_SECTION = "## 禁止模式清单"
 
 
 def test_every_skill_has_code_guide():
@@ -68,7 +115,15 @@ def test_every_skill_has_code_guide():
         guide = REPO_ROOT / "skills" / name / "references" / "code-guide.md"
         assert guide.is_file(), f"{name}: missing references/code-guide.md"
         content = guide.read_text(encoding="utf-8")
-        assert len(content.splitlines()) >= 40, f"{name}: code-guide.md suspiciously thin"
+        n = len(content.splitlines())
+        assert n >= MIN_CODE_GUIDE_LINES, (
+            f"{name}: code-guide.md suspiciously thin ({n} < {MIN_CODE_GUIDE_LINES})"
+        )
+        assert REQUIRED_GUIDE_SECTION in content, (
+            f"{name}: code-guide.md missing '{REQUIRED_GUIDE_SECTION}' "
+            "(SKILL.md 的「参考文件」行声明了该章节)"
+        )
+        assert "```" in content, f"{name}: code-guide.md has no fenced template block"
 
 
 def test_claude_md_routes_every_skill():

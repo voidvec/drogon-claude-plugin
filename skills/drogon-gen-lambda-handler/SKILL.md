@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-lambda-handler
-description: 生成 drogon 现代 lambda 路由代码（app().registerHandler），含 {N} 路径参数绑定与 constraints 混传。
-version: 0.1.0
+description: 需要用 app().registerHandler 写现代 lambda 内联路由时，生成含 {N} 路径参数绑定与 constraints 混传的代码。
+license: MIT
 ---
 
 # drogon-gen-lambda-handler

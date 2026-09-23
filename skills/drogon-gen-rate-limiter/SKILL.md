@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-rate-limiter
 description: 需要 drogon 限流/防滥用、编写 Hodor 插件配置、自定义 429 拒绝响应或编程式 RateLimiter 时使用。
-version: 0.2.0
+license: MIT
 ---
 
 # drogon-gen-rate-limiter

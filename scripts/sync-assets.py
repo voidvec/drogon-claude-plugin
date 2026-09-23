@@ -56,8 +56,21 @@ def sync() -> int:
     return count
 
 
+def _all_files_raw(root: Path):
+    """不做忽略过滤地列出所有文件(用于检测目标侧是否混入中间产物)。"""
+    for p in root.rglob("*"):
+        if p.is_file():
+            yield p
+
+
 def check() -> bool:
     """比较源资产与同步目标是否一致。"""
+    # 目标侧不允许出现中间产物——与 sync-assets.mjs 的严格性对齐。
+    # (copytree/cpSync 曾把 __pycache__ 原样带进包,导致包内多出 .pyc)
+    if DEST.is_dir():
+        for f in _all_files_raw(DEST):
+            if any(part in IGNORE_DIRS for part in f.parts):
+                return False
     for name in ASSETS:
         src = REPO_ROOT / name
         dst = DEST / name

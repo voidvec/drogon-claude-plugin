@@ -302,6 +302,16 @@ apps/server/config/
 - **同步纪律**：修改 `config.json` 基线时**必须**同步到 `config.dev.json` / `config.ci.json` / `config.prod.json`（否则环境间漂移，authforge AGENTS.md 明文规定）。
 - **禁止**用 `config.prod.json` 做开发调试（prod 配置启用了 Hodor 限流/严格 CORS，本地行为不一致）。
 
+## 禁止模式清单
+
+- **禁止**在 prod 配置里留真实凭据；写占位哨兵，运行时由环境变量覆盖。
+- **禁止**使用**不存在**的键名（如 `enable_static_file_cache`）——v1.9.13 源码无此配置项。
+- **禁止**把 `ssl` 写成字符串 `"true"`——必须是布尔 `true`。
+- **禁止**用 `config.prod.json` 做本地开发调试（限流与严格 CORS 会让行为与本地不一致）。
+- **禁止**运行时用 if/else 切换环境——部署期选定文件（Dockerfile `COPY`），程序只读 `./config.json`。
+- **禁止**改了 `config.json` 基线却不把差异同步到 `config.dev.json` / `config.ci.json` / `config.prod.json`（环境漂移）。
+- **禁止**TLS 监听只写 `port` 而漏掉 `cert` / `key`——HTTPS 监听必须成对配置。
+
 ## 错误处理
 
 - `format` 不是 `json` 或 `yaml`：返回错误消息

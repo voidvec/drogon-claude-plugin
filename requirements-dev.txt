@@ -1,0 +1,8 @@
+# 仓库自身的开发/CI 依赖(不含运行时依赖 —— 本插件的运行时依赖为零)。
+#
+# 为什么要固定版本:此前 CI 用裸 `pip install pytest` / `pip install build`,
+# 上游任何大版本变更都会直接改变 CI 行为(供应链风险,也是不可复现构建的来源)。
+# 升级方式:定期由依赖机器人(见 docs/PROFESSIONALIZATION-REVIEW.md §8 建议)提 PR,
+# 人工复核后更新本文件,而不是让 CI 随机漂移。
+pytest==9.1.1
+build==1.2.2

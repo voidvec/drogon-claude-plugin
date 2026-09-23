@@ -119,7 +119,7 @@ void ChatWS::handleNewMessage(const WebSocketConnectionPtr &conn, std::string &&
 - 大消息：消息**整条**驻留内存后才递交（parser 无应用层分片），且无消息大小上限配置（核对不存在 `setWebSocketMaxMessageSize` 类 API）；广播 N 连接 × 大消息会内存放大——大负载走应用层分片 + `Binary`。
 - 主动关闭：`conn->shutdown(CloseCode, reason)`（优雅，发 Close 帧，:149-150；`CloseCode` 枚举 :27-86，如 `kNormalClosure`=1000、`kViolation`=1008）/ `conn->forceClose()`（:153）。
 
-## 5. 禁止模式清单
+## 禁止模式清单
 
 1. **handler/连接回调里同步阻塞**（A.3/B.1）：三个 handler 在事件循环线程执行，同步 DB/`sleep`/长计算会拖死同循环所有连接；重活丢线程池或协程。
 2. **裸存 `WebSocketConnectionPtr` 不处理生命周期**：`shared_ptr` 防悬空，但连接关闭后对象滞留内存、注册表无限增长；必须 `handleConnectionClosed` 里 unsubscribe/erase，发送前 `conn->connected()` 检查。

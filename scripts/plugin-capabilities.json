@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "_comment": "CLI 能力契约：声明两个发行包(pypi/npm)各自应提供的命令集合，以及 npm 相对参考实现(pypi)的已知能力缺口。tests/test_hosts.py 与 scripts/check-consistency.py 会据此断言两侧实现的真实命令集合，任何差异都必须在此显式声明——能力差异是评审过的决定，不是意外。",
+  "cli": {
+    "pypi": {
+      "commands": ["install", "verify", "upgrade", "uninstall", "scan", "hosts", "version"]
+    },
+    "npm": {
+      "commands": ["install", "verify", "upgrade", "uninstall", "version"]
+    }
+  },
+  "known_gaps": {
+    "npm": {
+      "commands": ["scan", "hosts"],
+      "reason": "npm CLI 保持 v0.2 bundle 行为(Claude Code / ZCode)；多宿主 --host 与 scan 由 PyPI CLI(参考实现)提供。见 CHANGELOG 0.3.0「Known limitations」与 npm/README.md。"
+    }
+  }
+}

@@ -32,5 +32,20 @@ escape_for_json() {
 content="$(cat "$RULES")"
 [ -n "$content" ] || exit 0
 
+# 剔除其余 C0 控制字符(保留 \t / \n / \r —— 它们随后会被转义)。
+# 否则规则文件里若出现 \f、\v 等字符,产出的 JSON 不合法,宿主解析失败,
+# 表现为"规则注入静默失效"。tr 随 bash 在 Git Bash / Linux / macOS 均可用。
+# 注意:本脚本以 `set -euo pipefail` 运行,命令替换失败会让脚本以非零退出,
+# 违反 "SessionStart 必须 exit 0" 的约定 —— 因此这里显式捕获失败并降级。
+if command -v tr >/dev/null 2>&1; then
+    if ! content="$(printf '%s' "$content" | LC_ALL=C tr -d '\000-\010\013\014\016-\037\177')"; then
+        exit 0
+    fi
+else
+    # 没有 tr 就无法保证 JSON 合法 —— 宁可跳过注入,也不要产出非法 JSON。
+    exit 0
+fi
+[ -n "$content" ] || exit 0
+
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' \
     "$(escape_for_json "$content")"

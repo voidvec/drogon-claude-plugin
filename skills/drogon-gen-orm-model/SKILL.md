@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-orm-model
 description: 需要从数据库表生成 drogon ORM 模型类（drogon_ctl create model + model.json）、配置关系映射、或把生成模型接入 CMake 时使用。
-version: 0.2.0
+license: MIT
 ---
 
 # drogon-gen-orm-model

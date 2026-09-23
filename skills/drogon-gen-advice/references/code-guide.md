@@ -4,7 +4,7 @@
 
 Extract `advice_type` (required) from the 11 valid values listed in SKILL.md.
 
-## Forbidden patterns
+## 禁止模式清单
 
 - Registering advice **inside a handler** — must be before `app().run()`.
 - Intercepting advice missing the callback call — exactly-once discipline: must call `AdviceCallback` OR `AdviceChainCallback` once; omitting → connection hangs, double-call → crash.

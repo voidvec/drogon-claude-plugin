@@ -8,7 +8,7 @@ Extract:
 - `method`: HTTP method (default `Get`)
 - `timeout`: seconds, 0 = no timeout (default `0`)
 
-## Forbidden patterns
+## 禁止模式清单
 
 - Synchronous `sendRequest(req)` / `sendRequest(req, timeout)` **inside a handler or the event-loop thread** — has `assert(!getLoop()->isInLoopThread())`, deadlocks (HttpClient.h:133).
 - Reusing the **same** `HttpRequestPtr` across threads — `sendRequest` mutates it (adds headers), concurrent reuse is a data race (HttpClient.h:87-88).

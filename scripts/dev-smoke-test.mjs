@@ -6,12 +6,19 @@
  */
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const PKG = require('../npm/package.json')
+
+// 技能数单一事实源:源仓库 skills/ 目录(不依赖 cwd,禁止硬编码)。
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const EXPECTED_SKILLS = fs
+  .readdirSync(path.join(REPO, 'skills'), { withFileTypes: true })
+  .filter((d) => d.isDirectory()).length
 
 const EXE = path.resolve(
   process.cwd(),
@@ -68,7 +75,8 @@ async function main() {
   const skills = fs
     .readdirSync(path.join(plugin, 'skills'), { withFileTypes: true })
     .filter((d) => d.isDirectory())
-  if (skills.length !== 22) throw new Error(`skills 数 ${skills.length} != 22`)
+  if (skills.length !== EXPECTED_SKILLS)
+    throw new Error(`skills 数 ${skills.length} != 源仓库 ${EXPECTED_SKILLS}`)
   if (fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf-8') !== '# 我的项目\n')
     throw new Error('install 覆盖了项目自有 CLAUDE.md')
   console.log('install OK')

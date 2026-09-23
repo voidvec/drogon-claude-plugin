@@ -1,7 +1,7 @@
 ---
 name: drogon-create-controller
-description: 生成 drogon 控制器代码（.h + .cc），支持 HttpSimpleController、HttpController、WebSocketController 三种类型。
-version: 0.1.0
+description: 需要为路由 / 接口创建 drogon 控制器时，生成 .h + .cc（HttpSimpleController / HttpController / WebSocketController 三选一），含路径前缀、:param 与自动注册纪律。
+license: MIT
 ---
 
 # drogon-create-controller

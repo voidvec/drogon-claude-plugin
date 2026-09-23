@@ -77,6 +77,15 @@
 - **运行期 `DrogonDbException`**（如唯一键冲突）：在异步 Mapper 的失败回调中 `callback(错误响应)` 并 `LOG_ERROR` 记录，**禁止**忽略异常、**禁止**只写成功回调忘了失败回调。
 - **SQL 注入防护**：`Mapper<T>` 方法（`findBy` / `findByCriteria`）自动参数化。**禁止**手动拼接 SQL 字符串；必须手写 SQL 时用 `$1`/`$2` 占位符 + 参数传递。
 
+## 禁止模式清单
+
+- **禁止**错误键名：`db_name`（应为 `dbname`）、`username`（应为 `user`）、`password`（应为 `passwd`）。
+- **禁止**把 `port` / `connection_number` 写成字符串——必须是整数。
+- **禁止**给 SQLite 配 `host` / `port`；SQLite 只用 `filename`，且 `connection_number` 必须为 1。
+- **禁止**在 `loadConfigFile()` 外层漏掉 try/catch（连接失败抛 `std::runtime_error`）。
+- **禁止**手动拼接 SQL 字符串（SQL 注入）；必须手写 SQL 时用 `$1` / `$2` 占位符 + 参数绑定。
+- **禁止**只实现成功回调而漏掉失败回调——`DrogonDbException` 会被静默吞掉。
+
 ## 错误处理
 
 - `db_type` 无效：返回错误消息

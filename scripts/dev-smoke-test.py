@@ -76,9 +76,12 @@ def main() -> int:
         if not (plugin / rel).is_file():
             print(f"❌ 缺少 {rel}")
             return 1
-    n_skills = len(list((plugin / "skills").iterdir()))
-    if n_skills != 22:
-        print(f"❌ skills 数 {n_skills} != 22")
+    # 技能数单一事实源:源仓库 skills/ 目录(禁止硬编码)。
+    repo_skills = Path(__file__).resolve().parent.parent / "skills"
+    expected = len([d for d in repo_skills.iterdir() if d.is_dir()])
+    n_skills = len([d for d in (plugin / "skills").iterdir() if d.is_dir()])
+    if n_skills != expected:
+        print(f"❌ skills 数 {n_skills} != 源仓库 {expected}")
         return 1
     if own_md.read_text(encoding="utf-8") != "# 我的项目\n":
         print("❌ 安装覆盖了项目自有 CLAUDE.md")

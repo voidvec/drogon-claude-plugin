@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-monitoring
 description: 需要接入 Prometheus 指标/Counter/Gauge/Histogram/自定义业务监控时，生成 PromExporter 配置与指标采集代码。
-version: 0.2.0
+license: MIT
 ---
 
 # drogon-gen-monitoring

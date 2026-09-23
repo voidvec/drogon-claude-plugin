@@ -98,7 +98,7 @@ Task<HttpResponsePtr> PromStat::invoke(const HttpRequestPtr &req, MiddlewareNext
 
 何时用：Prometheus 采集开销敏感的高频路径。monitoring::Counter 每次 increment 拿内部 mutex（Counter.h:53），`Collector::metric()` 查找再拿一层 mutex（Collector.h:74）——一次采集两次加锁；atomic `++` 无锁。pay-plugin 在每请求鉴权中调 `PayAuthMetrics::incXxx()`（AuthCheck.cc:164-246），PromExporter 只挂 `/metrics/base`（examples/pay-server/config.json:127-132），业务计数走自有路径，两者路径错开互不冲突。
 
-## 5. 禁止模式清单
+## 禁止模式清单
 
 1. 手写 `path`（默认 /metrics）上的自有 handler：与 PromExporter 已注册的 `{Get, Options}` handler 冲突（PromExporter.cc:18-36）。自有指标要么进 collectors，要么像 pay-plugin 把 PromExporter 挪到 `/metrics/base`、自有 handler 用其他路径。
 2. 线程安全如实说明：Counter/Gauge/Histogram 的全部更新方法都由内部 `std::mutex` 保护（Counter.h:78、Gauge.h:104、Histogram.h:103 及 Histogram.cc 的 observe/collect），跨线程直接共享同一 Metric 对象是安全的，不构成数据竞争。真正禁止：(a) 把 `metric()` 返回的 `const std::shared_ptr<T>&`（指向 Collector 内部 map 元素，Collector.h:64）保存为长期全局句柄——应每次调用 `metric()` 或立即拷贝 shared_ptr；(b) 在已持业务锁的临界区内再调 `metric()->increment()` 造成锁嵌套。

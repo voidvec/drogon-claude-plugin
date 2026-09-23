@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-advice
-description: 生成 drogon AOP Advice 代码（11 个内建切面之一），区分拦截型/观察型，含 SyncAdvice 短路。
-version: 0.1.0
+description: 需要在请求生命周期插入切面（11 个内建 Advice 之一：路由前后、handler 前后、发送前等）时生成 AOP 代码。
+license: MIT
 ---
 
 # drogon-gen-advice

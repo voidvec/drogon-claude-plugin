@@ -1,8 +1,9 @@
 {
+  "description": "Drogon 插件钩子:会话开始注入规则层;编辑后扫描 drogon API 误用。",
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|clear|compact",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
