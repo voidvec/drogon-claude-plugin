@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-websocket
 description: 需要 WebSocket 服务端/推送/广播/连接管理时，生成 drogon WebSocketController 代码，含心跳与跨循环纪律。
-version: 0.2.0
+license: MIT
 ---
 
 # drogon-gen-websocket

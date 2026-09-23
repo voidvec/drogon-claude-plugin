@@ -13,6 +13,7 @@
  */
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -25,21 +26,48 @@ const INSTALL_DIR = '.drogon-plugin'
 const LEGACY_STAMP = '.drogon-claude-plugin-installed.json'
 const STAMP = '.drogon-claude-plugin-v2.json'
 const CLAUDE_MD_MARKER = '# Drogon 后端开发规则'
-const EXPECTED_SKILLS = 22
 const EXPECTED_HOOK_FILES = ['hooks.json', 'run-hook.cmd', 'session-start', 'post-tool-use', 'posttooluse.py']
 const EXPECTED_HOOK_EVENTS = 2
+
+// 本 CLI 支持的命令(单一来源:dispatch 与 --capabilities 共用,能力契约测试据此比对)。
+const COMMANDS = ['install', 'verify', 'upgrade', 'uninstall', 'version']
 
 function cliVersion() {
   return PKG.version
 }
 
+// 受管资产条目。回退到源码树时**只**复制这些顶层条目 ——
+// 否则会把 .git / node_modules / tests / scripts 整仓拖进用户项目
+// （且会被 verify 当成受管文件）。与 scripts/sync-assets.mjs 的 ASSETS+FILES 对应，
+// scripts/check-consistency.py 会校验两者等价。
+const MANAGED_ENTRIES = new Set([
+  'skills',
+  'hooks',
+  '.claude-plugin',
+  '.zcode-plugin',
+  '.codex-plugin',
+  'CLAUDE.md',
+  'AGENTS.md',
+  'GEMINI.md',
+  'gemini-extension.json',
+])
+
+// 是否处于"源码树回退"模式（打包后的正常安装不会有此状态）
+let ASSETS_FALLBACK = false
+
 /** 定位打包进 tarball 的 assets 根 */
 function findAssets() {
   const packaged = path.join(__dirname, '..', 'assets')
-  if (fs.existsSync(path.join(packaged, '.claude-plugin'))) return packaged
-  // 源码树 fallback: 直接指向仓库根
+  if (fs.existsSync(path.join(packaged, '.claude-plugin'))) {
+    ASSETS_FALLBACK = false
+    return packaged
+  }
+  // 源码树 fallback: 指向仓库根，但只复制受管资产（见 MANAGED_ENTRIES）
   const repoRoot = path.resolve(__dirname, '..', '..')
-  if (fs.existsSync(path.join(repoRoot, '.claude-plugin', 'plugin.json'))) return repoRoot
+  if (fs.existsSync(path.join(repoRoot, '.claude-plugin', 'plugin.json'))) {
+    ASSETS_FALLBACK = true
+    return repoRoot
+  }
   throw new Error(
     '未找到插件资产目录。请确认包安装完整（assets/），或从源码仓库运行。'
   )
@@ -62,13 +90,72 @@ function resolveProjectDir(args) {
 
 function listFiles(dir, base) {
   const out = []
+  const isTop = dir === base
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    // 回退模式下顶层只允许受管条目（见 MANAGED_ENTRIES）
+    if (ASSETS_FALLBACK && isTop && !MANAGED_ENTRIES.has(entry.name)) continue
     const full = path.join(dir, entry.name)
     const rel = path.relative(base, full)
     if (entry.isDirectory()) out.push(...listFiles(full, base))
     else out.push(rel)
   }
   return out
+}
+
+/** 技能数量单一事实源:实枚举随包 skills/ 目录(禁止硬编码)。 */
+function skillCount(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).length
+  } catch {
+    return 0
+  }
+}
+
+function bundledSkillCount() {
+  try {
+    return skillCount(path.join(findAssets(), 'skills'))
+  } catch {
+    return 0
+  }
+}
+
+function skillsOk(dir) {
+  const n = skillCount(dir)
+  const expected = bundledSkillCount()
+  return expected ? n === expected : n > 0
+}
+
+const asPosix = (p) => p.split(path.sep).join('/')
+
+/** 受管文件摘要(relpath -> sha256),用于安装后漂移检测。 */
+function fileHashes(root, skip = new Set()) {
+  const out = {}
+  for (const rel of listFiles(root, root)) {
+    const posix = asPosix(rel)
+    if (skip.has(posix) || posix.split('/').includes('__pycache__')) continue
+    out[posix] = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, rel))).digest('hex')
+  }
+  return out
+}
+
+/** 已安装 bundle 的资产漂移检测(缺失/被改动/多余);无清单时静默跳过。 */
+function driftProblems(root) {
+  let recorded = null
+  try {
+    recorded = JSON.parse(fs.readFileSync(path.join(root, STAMP), 'utf-8')).hashes
+  } catch {
+    /* 旧版安装无 hashes 字段 */
+  }
+  if (!recorded || typeof recorded !== 'object') return []
+  const current = fileHashes(root, new Set([STAMP]))
+  const problems = []
+  const missing = Object.keys(recorded).filter((k) => !(k in current)).sort()
+  const modified = Object.keys(recorded).filter((k) => k in current && recorded[k] !== current[k]).sort()
+  const added = Object.keys(current).filter((k) => !(k in recorded)).sort()
+  if (missing.length) problems.push(`资产缺失 ${missing.length} 个（如 ${missing[0]}）；可 upgrade 重装`)
+  if (modified.length) problems.push(`资产被改动 ${modified.length} 个（如 ${modified[0]}）；可 upgrade 覆盖`)
+  if (added.length) problems.push(`资产目录存在未受管文件 ${added.length} 个（如 ${added[0]}）`)
+  return problems
 }
 
 /** 把资产树复制到 targetRoot（rel 来自对 srcRoot 的枚举，不含用户输入）。 */
@@ -171,10 +258,19 @@ function printEnableHint(root) {
 
 // ---------------------------------------------------------------------------
 
+/** 回退到源码树时显式告警:用户应当知道复制来源不是打包资产。 */
+function warnIfFallback() {
+  if (ASSETS_FALLBACK) {
+    console.warn('⚠️  未找到打包资产（npm/assets/），已回退到源码树 —— 只复制受管插件资产。')
+    console.warn('    发布包不应出现此提示；如需正常路径请先运行 node scripts/sync-assets.mjs')
+  }
+}
+
 function cmdInstall(args) {
   try {
     const project = resolveProjectDir(args)
     const src = findAssets()
+    warnIfFallback()
     const root = installRootOf(project)
     if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true })
     const count = copyAssets(src, root)
@@ -188,6 +284,7 @@ function cmdInstall(args) {
           cli_version: cliVersion(),
           plugin_version: manifestVer,
           files: count,
+          hashes: fileHashes(root, new Set([STAMP])),
         },
         null,
         2
@@ -195,7 +292,7 @@ function cmdInstall(args) {
     )
 
     console.log(`✅ 已安装 drogon 插件资产到 ${root}`)
-    console.log(`   复制 ${count} 个文件 · 插件版本 ${manifestVer} · ${EXPECTED_SKILLS} 个技能`)
+    console.log(`   复制 ${count} 个文件 · 插件版本 ${manifestVer} · ${bundledSkillCount()} 个技能`)
     printEnableHint(root)
     return 0
   } catch (e) {
@@ -226,8 +323,8 @@ function cmdVerify(args) {
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .sort()
-      if (skillNames.length !== EXPECTED_SKILLS)
-        problems.push(`技能数 ${skillNames.length} != 预期 ${EXPECTED_SKILLS}`)
+      if (!skillsOk(skillsDir))
+        problems.push(`技能数 ${skillNames.length} != 随包 ${bundledSkillCount()}`)
       for (const n of skillNames) {
         if (!fs.existsSync(path.join(skillsDir, n, 'SKILL.md')))
           problems.push(`技能 ${n} 缺少 SKILL.md`)
@@ -256,6 +353,7 @@ function cmdVerify(args) {
     if (!fs.existsSync(path.join(target, 'CLAUDE.md'))) problems.push('缺少 CLAUDE.md')
     if (!fs.existsSync(path.join(target, '.zcode-plugin', 'plugin.json')))
       problems.push('缺少 .zcode-plugin/plugin.json（ZCode 宿主清单）')
+    problems.push(...driftProblems(target))
 
     console.log(`📦 drogon-claude-plugin 结构校验 — ${target}（布局: ${layout}）`)
     console.log(`   插件版本 : ${manifestVer}`)
@@ -278,6 +376,7 @@ function cmdUpgrade(args) {
   try {
     const project = resolveProjectDir(args)
     const src = findAssets()
+    warnIfFallback()
     const bundled = pluginVersion(src) ?? '?'
     let [layout, target] = detectLayout(project)
 
@@ -310,6 +409,7 @@ function cmdUpgrade(args) {
           cli_version: cliVersion(),
           plugin_version: bundled,
           files: count,
+          hashes: fileHashes(root, new Set([STAMP])),
         },
         null,
         2
@@ -380,11 +480,16 @@ function main() {
   if (command === 'version' || command === '-v' || command === '--version') {
     return cmdVersion()
   }
+  if (command === '--capabilities') {
+    // 机器可读的能力声明:供 scripts/plugin-capabilities.json 的契约测试比对
+    console.log(JSON.stringify({ cli: 'npm', version: cliVersion(), commands: COMMANDS }))
+    return 0
+  }
   if (command === 'help' || command === '-h' || command === '--help') {
     console.log(HELP)
     return 0
   }
-  if (!['install', 'verify', 'upgrade', 'uninstall'].includes(command)) {
+  if (!COMMANDS.includes(command)) {
     console.error(`未知命令: ${command}`)
     console.error(HELP)
     return 2

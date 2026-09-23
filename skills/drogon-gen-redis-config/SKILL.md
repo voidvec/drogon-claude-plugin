@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-redis-config
-description: 生成 drogon 项目的 Redis 配置（config.json 片段）。
-version: 0.2.0
+description: 需要配置 drogon Redis 客户端，或编写 execCommandAsync / 订阅 / 协程调用时，生成 config.json 片段与运行期用法代码。
+license: MIT
 ---
 
 # drogon-gen-redis-config

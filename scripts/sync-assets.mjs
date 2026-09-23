@@ -99,12 +99,11 @@ function check() {
 
 const isCheck = process.argv.includes('--check')
 if (isCheck) {
-  const ok = check()
-  if (ok === true) {
+  if (check()) {
     console.log('✅ npm 资产与源码同步')
     process.exit(0)
   }
-  console.log(`❌ npm 资产与源码不一致: ${typeof ok === 'string' ? ok : ''}`)
+  console.log('❌ npm 资产与源码不一致，请运行 node scripts/sync-assets.mjs')
   process.exit(1)
 } else {
   sync()

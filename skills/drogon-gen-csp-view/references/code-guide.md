@@ -40,7 +40,7 @@ CSP 视图的完整流程（用户须知晓）：
 
 - **禁止在 handler 里手工拼接 HTML 字符串返回**：HTML 页面必须通过 CSP 视图（`newHttpViewResponse`）渲染。手工拼 HTML 易出 XSS 且无法复用布局。
 
-## Forbidden syntax
+## 禁止模式清单
 
 - `@@key@@` — wrapping syntax does not exist, `@@` is a standalone token
 - `{{ key }}` — Jinja2/Mustache template engine syntax, not supported by drogon

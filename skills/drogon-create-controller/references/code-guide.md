@@ -100,6 +100,16 @@ WebSocketController 宏（源码 `lib/inc/drogon/WebSocketController.h:27-33`）
 - **自动注册**：所有控制器通过静态初始化宏自动注册（宏内部调用 `DrClassMap::getSingleInstance<Ctrl>()->registerPathAdvice()`）。**禁止**在 `main()` 手动注册控制器，**禁止**手动调用 `DrClassMap` 方法。
 - **单例生命周期**：控制器是单例（`DrObject` + `DrClassMap`），框架启动时创建、关闭时销毁。**禁止**在 handler 里 `new Ctrl()` 或手动管理生命周期；**禁止**在控制器构造函数里做阻塞操作（会阻塞框架启动）。
 
+## 禁止模式清单
+
+- **禁止**在 `main()` 手动注册控制器（`registerHandler` / `DrClassMap` 之类）——控制器经静态初始化宏自动注册。
+- **禁止**在控制器构造函数里做阻塞操作（同步 DB、`sleep`、文件 I/O）——构造函数在框架启动期执行。
+- **禁止**在 handler 里同步阻塞后再调用 callback（同步查 DB、长计算）；改用 drogon 异步 API 或线程池。
+- **禁止**漏调或多调 `callback`：所有代码路径（含异常、提前返回）必须**恰好一次**。
+- **禁止**在 handler 里 `new Ctrl()` 或手动管理控制器生命周期——控制器是 `DrObject` 单例。
+- **禁止**用 `req->path()` 手工解析 `:param`；用 `req->getParameter("name")`。
+- **禁止**把 `{N}` 位置捕获语法用在经典控制器上（那是 lambda 内联路由的语法，见 `drogon-gen-lambda-handler`）。
+
 ## 错误处理
 
 - 命令执行失败：返回 stderr 内容

@@ -12,9 +12,12 @@ bash comes from Git for Windows, on Linux/macOS it is the system bash.
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOKS = REPO_ROOT / "hooks"
@@ -64,8 +67,6 @@ def _skip_if_no_bash():
             [BASH, "--version"], capture_output=True, check=True
         )
     except (OSError, subprocess.CalledProcessError):
-        import pytest
-
         pytest.skip("bash not available")
 
 
@@ -169,5 +170,59 @@ def test_hooks_json_is_valid_and_uses_run_hook_cmd():
         assert entry.get("timeout", 0) >= 5, f"{event} timeout too tight"
 
 
+def test_session_start_matcher_covers_resume():
+    """回归(H1):来源集合为 startup/resume/clear/compact,漏 resume 会导致会话恢复不注入规则。"""
+    data = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))
+    entry = data["hooks"]["SessionStart"][0]
+    assert "resume" in entry["matcher"], f"SessionStart matcher 未覆盖 resume: {entry['matcher']}"
+
+
+def test_session_start_strips_control_chars(tmp_path):
+    """回归(H5):规则文件含 C0 控制字符时,产出仍必须是合法 JSON。"""
+    _skip_if_no_bash()
+    (tmp_path / "CLAUDE.md").write_text(
+        "# 规则\n\n正常内容\x0c含换页符\x0b含垂直制表\n", encoding="utf-8"
+    )
+    env = dict(os.environ, CLAUDE_PLUGIN_ROOT=_posix(tmp_path))
+    p = subprocess.run(
+        [BASH, _posix(HOOKS / "session-start")],
+        input=SESSION_START_EVENT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        cwd=str(REPO_ROOT),
+    )
+    assert p.returncode == 0, p.stderr
+    data = json.loads(p.stdout)  # 含控制字符时 raw 输出会破坏 JSON,这里必须能解析
+    ctx = data["hookSpecificOutput"]["additionalContext"]
+    assert "正常内容" in ctx
+    assert not [c for c in ctx if ord(c) < 0x20 and c not in "\t\n\r"], "控制字符未被剔除"
+
+
+def test_hook_scripts_use_lf_on_disk():
+    """钩子脚本含 CRLF 时 bash 会把 \\r 当成命令的一部分(静默失效),磁盘上必须是 LF。"""
+    for rel in ("hooks/session-start", "hooks/post-tool-use", "hooks/run-hook.cmd"):
+        data = (REPO_ROOT / rel).read_bytes()
+        assert b"\r\n" not in data, f"{rel}: 含 CRLF,bash 解析会被 \\r 破坏"
+
+
+def test_extensionless_hook_scripts_are_lf_pinned_in_gitattributes():
+    """无扩展名脚本必须显式声明 LF —— 按扩展名的规则覆盖不到它们(Windows 克隆会变 CRLF)。"""
+    ga = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+    for rel in ("hooks/session-start", "hooks/post-tool-use"):
+        assert re.search(rf"^{re.escape(rel)}\s+.*\beol=lf\b", ga, re.M), (
+            f".gitattributes 缺少 {rel} 的 eol=lf 声明"
+        )
+
+
+def test_rule_files_have_no_control_chars():
+    """防我们自己往规则文件里引入控制字符(session-start 的前提)。"""
+    for rel in ("CLAUDE.md", "AGENTS.md", "GEMINI.md"):
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        bad = sorted({hex(ord(c)) for c in text if ord(c) < 0x20 and c not in "\t\n\r"})
+        assert not bad, f"{rel}: 含控制字符 {bad}"
+
+
 if __name__ == "__main__":
-    sys.exit(0)
+    raise SystemExit(pytest.main([__file__]))

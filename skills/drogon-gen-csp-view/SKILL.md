@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-csp-view
-description: 生成 drogon CSP 视图模板（.csp 文件）及对应的控制器渲染代码，支持布局模板、C++ 逻辑嵌入、HttpViewData 填充。
-version: 0.1.0
+description: 需要编写 drogon CSP 视图（.csp：布局、C++ 逻辑嵌入、HttpViewData 填充）及渲染控制器时生成模板代码。
+license: MIT
 ---
 
 # drogon-gen-csp-view

@@ -52,7 +52,6 @@ _CLAUDE_MD_MARKER = "# Drogon 后端开发规则"
 _MARKER_BEGIN = "<!-- drogon-plugin begin -->"
 _MARKER_END = "<!-- drogon-plugin end -->"
 
-_EXPECTED_SKILLS = 22
 _EXPECTED_HOOK_FILES = (
     "hooks.json",
     "run-hook.cmd",
@@ -62,12 +61,22 @@ _EXPECTED_HOOK_FILES = (
 )
 _EXPECTED_HOOK_EVENTS = 2
 
+# 技能数量没有常量:单一事实源是随包资产里的 skills/ 目录,一律实枚举(见 _bundled_skill_count)。
+# 历史上这里硬编码过 22,导致新增技能需要人工同步 7 处常量 + 若干文档文案。
+
 _REPO_URL = "https://github.com/voidvec/drogon-claude-plugin"
 
 _PKG_VERSION: "str | None" = None
 
 _MARKER_SECTION_RE = re.compile(
     re.escape(_MARKER_BEGIN) + r"[\s\S]*?" + re.escape(_MARKER_END) + r"\n?"
+)
+
+# 孤立标记行(只有 begin 没有 end,或反之):用户手改坏时会出现。
+# 它们是我们写入的标记,可以安全清理后重写一段完整的。
+_MARKER_LINE_RE = re.compile(
+    r"^[ \t]*(?:" + re.escape(_MARKER_BEGIN) + r"|" + re.escape(_MARKER_END) + r")[ \t]*$\n?",
+    re.M,
 )
 
 
@@ -126,6 +135,29 @@ def _find_assets() -> Path:
     return here / _ASSETS_PREFIX
 
 
+# ---------------------------------------------------------------------------
+# 技能数量:单一事实源 = 资产目录里的 skills/(禁止硬编码)
+# ---------------------------------------------------------------------------
+
+
+def _skill_count_of(skills_dir: Path) -> int:
+    if not skills_dir.is_dir():
+        return 0
+    return len([d for d in skills_dir.iterdir() if d.is_dir()])
+
+
+def _bundled_skill_count() -> int:
+    """随包技能数(实枚举)。资产缺失时返回 0,调用方需据此降级。"""
+    return _skill_count_of(_find_assets() / "skills")
+
+
+def _skills_ok(skills_dir: Path) -> bool:
+    """技能目录是否与随包资产一致。资产不可用时退化为"非空"检查。"""
+    n = _skill_count_of(skills_dir)
+    expected = _bundled_skill_count()
+    return n == expected if expected else n > 0
+
+
 def _parse_hosts(spec: "str | None") -> list:
     if not spec or spec == "all":
         return list(ALL_HOSTS)
@@ -159,6 +191,25 @@ def _project_dir(args) -> Path:
 
 def _list_assets(root: Path):
     return (p for p in root.rglob("*") if p.is_file())
+
+
+def _is_ignored_rel(rel: str) -> bool:
+    """安装清单不含中间产物(如宿主执行 hook 时可能生成的 __pycache__)。"""
+    return "__pycache__" in Path(rel).parts
+
+
+def _file_hashes(root: Path, skip: "set[str] | None" = None) -> dict:
+    """受管文件的 SHA-256 清单(relpath -> hexdigest),用于安装后漂移检测。"""
+    import hashlib
+
+    skip = skip or set()
+    out = {}
+    for f in sorted(_list_assets(root)):
+        rel = f.relative_to(root).as_posix()
+        if rel in skip or _is_ignored_rel(rel):
+            continue
+        out[rel] = hashlib.sha256(f.read_bytes()).hexdigest()
+    return out
 
 
 def _copy_assets(src_root: Path, target_root: Path) -> int:
@@ -245,16 +296,28 @@ def _remove_legacy_layout(project: Path):
 
 def _write_instruction_file(project: Path, name: str, content: str, force: bool):
     """三态写入。返回 action: full(新建整文件)/ marker(替换或追加标记段)/
-    skipped(已存在且未 force)。"""
+    skipped(已存在且未 force)。
+
+    注意:进入"替换"分支的判据必须是**成对的**标记段(`_MARKER_SECTION_RE`),
+    不能只看 `_MARKER_BEGIN in text` —— 否则文件含孤立 begin(用户手改坏)时会
+    写回原文却仍返回 "marker",让 uninstall 误以为可以剥离标记段。
+    """
     p = project / name
     section = f"{_MARKER_BEGIN}\n{content.rstrip()}\n{_MARKER_END}\n"
     if not p.exists():
         p.write_text(section, encoding="utf-8")
         return "full"
     text = p.read_text(encoding="utf-8")
-    if _MARKER_BEGIN in text:
-        # 已有标记段:替换为最新内容(升级语义)
-        p.write_text(_MARKER_SECTION_RE.sub(section.rstrip("\n") + "\n", text, count=1), encoding="utf-8")
+    if _MARKER_SECTION_RE.search(text):
+        # 已有完整标记段(可能多段):全部替换为最新内容(升级语义)
+        p.write_text(_MARKER_SECTION_RE.sub(section.rstrip("\n") + "\n", text), encoding="utf-8")
+        return "marker"
+    if _MARKER_BEGIN in text or _MARKER_END in text:
+        # 半损坏:存在孤立标记(是我们写的,被手改坏了)。先清掉孤立标记行,
+        # 再写回一段完整的 —— 这是唯一能保证 "返回 marker ⇔ 文件里确有可剥离标记段" 的做法。
+        cleaned = _MARKER_LINE_RE.sub("", text).rstrip()
+        body = f"{cleaned}\n\n{section}" if cleaned else section
+        p.write_text(body, encoding="utf-8")
         return "marker"
     if force:
         p.write_text(text.rstrip() + "\n\n" + section, encoding="utf-8")
@@ -270,7 +333,8 @@ def _strip_marker_section(project: Path, name: str) -> bool:
     text = p.read_text(encoding="utf-8")
     if not _MARKER_SECTION_RE.search(text):
         return False
-    new = _MARKER_SECTION_RE.sub("", text, count=1)
+    # 多段标记全部剥离,并清掉可能存在的孤立标记行
+    new = _MARKER_LINE_RE.sub("", _MARKER_SECTION_RE.sub("", text))
     new = re.sub(r"\n{3,}", "\n\n", new)
     p.write_text(new.rstrip() + "\n", encoding="utf-8")
     return True
@@ -281,14 +345,19 @@ def _strip_marker_section(project: Path, name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _load_stamp(project: Path) -> dict:
-    p = project / _STAMP_V3
+def _read_json(p: Path) -> dict:
+    """读 JSON 对象;缺失或损坏一律返回 {}（不新增异常路径）。"""
     if not p.is_file():
         return {}
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _load_stamp(project: Path) -> dict:
+    return _read_json(project / _STAMP_V3)
 
 
 def _save_stamp(project: Path, data: dict) -> None:
@@ -378,6 +447,8 @@ def cmd_install(args) -> int:
                         "cli_version": _version(),
                         "plugin_version": _plugin_version(root) or PLUGIN_VERSION,
                         "files": count,
+                        # 受管文件摘要:verify 据此检测资产被改动/缺失/多余(C3)
+                        "hashes": _file_hashes(root, skip={_STAMP_V2}),
                     },
                     indent=2,
                 ),
@@ -465,9 +536,7 @@ def _host_artifact_ok(project: Path, conf: dict) -> bool:
         return (project / _INSTALL_DIR / ".claude-plugin" / "plugin.json").is_file()
     ok = True
     if kind.startswith("skills"):
-        base = project / conf["skills_dir"]
-        n = len([d for d in base.iterdir() if d.is_dir()]) if base.is_dir() else 0
-        ok = ok and n >= _EXPECTED_SKILLS
+        ok = ok and _skills_ok(project / conf["skills_dir"])
     if "rulefile" in kind:
         ok = ok and (project / conf["rule_file"]).is_file()
     if "instruction" in kind:
@@ -480,6 +549,28 @@ def _host_artifact_ok(project: Path, conf: dict) -> bool:
             except OSError:
                 ok = False
     return ok
+
+
+def _drift_problems(plugin_root: Path) -> list:
+    """已安装 bundle 的资产漂移检测(缺失/被改动/多余)。
+
+    无清单时静默跳过——升级前用旧版安装的项目没有 hashes 字段,verify 不应因此报错。
+    """
+    recorded = _read_json(plugin_root / _STAMP_V2).get("hashes")
+    if not isinstance(recorded, dict) or not recorded:
+        return []
+    current = _file_hashes(plugin_root, skip={_STAMP_V2})
+    problems = []
+    missing = sorted(set(recorded) - set(current))
+    modified = sorted(k for k in set(recorded) & set(current) if recorded[k] != current[k])
+    added = sorted(set(current) - set(recorded))
+    if missing:
+        problems.append(f"资产缺失 {len(missing)} 个(如 {missing[0]});可 upgrade 重装")
+    if modified:
+        problems.append(f"资产被改动 {len(modified)} 个(如 {modified[0]});可 upgrade 覆盖")
+    if added:
+        problems.append(f"资产目录存在未受管文件 {len(added)} 个(如 {added[0]})")
+    return problems
 
 
 def cmd_verify(args) -> int:
@@ -503,15 +594,23 @@ def cmd_verify(args) -> int:
         skills_dir = plugin_root / "skills"
         if not skills_dir.is_dir():
             problems.append("缺少 skills/ 目录")
-        else:
-            n = len([d for d in skills_dir.iterdir() if d.is_dir()])
-            if n != _EXPECTED_SKILLS:
-                problems.append(f"技能数 {n} != 预期 {_EXPECTED_SKILLS}")
+        elif not _skills_ok(skills_dir):
+            problems.append(
+                f"技能数 {_skill_count_of(skills_dir)} != 随包 {_bundled_skill_count()}"
+            )
         for f in _EXPECTED_HOOK_FILES:
             if not (plugin_root / "hooks" / f).is_file():
                 problems.append(f"缺少 hooks/{f}")
+        hooks_json = plugin_root / "hooks" / "hooks.json"
+        if hooks_json.is_file():
+            n_events = len(_read_json(hooks_json).get("hooks", {}))
+            if n_events != _EXPECTED_HOOK_EVENTS:
+                problems.append(f"hooks 事件数 {n_events} != 预期 {_EXPECTED_HOOK_EVENTS}")
+        if not (plugin_root / "CLAUDE.md").is_file():
+            problems.append("缺少 CLAUDE.md")
         if not (plugin_root / ".zcode-plugin" / "plugin.json").is_file():
             problems.append("缺少 .zcode-plugin/plugin.json")
+        problems.extend(_drift_problems(plugin_root))
 
     host_status = [(h, _host_artifact_ok(project, c)) for h, c in HOSTS.items()]
 
@@ -561,32 +660,156 @@ def _cleanup_empty_dirs(project: Path) -> None:
             pass
 
 
+def _uninstall_bundle(project: Path, conf: dict, stamp: dict, removed: list, removing: list) -> None:
+    """bundle 宿主(claude/zcode)共用 ``.drogon-plugin/``:整目录都由本插件所有,直接删除。
+
+    注意粒度语义:claude 与 zcode 共用同一 bundle,按宿主粒度无法拆分,
+    因此卸载任一 bundle 宿主即移除整个 bundle(在 ``--help`` 与输出中已说明)。
+    """
+    root = project / _INSTALL_DIR
+    if root.is_dir():
+        shutil.rmtree(root)
+        removed.append(_INSTALL_DIR)
+
+
+def _hosts_using_skills_dir(installed: "list[str]", skills_dir: str) -> set:
+    """已安装宿主中,哪些把技能落在 ``skills_dir``。"""
+    return {
+        h for h in installed
+        if h in HOSTS and HOSTS[h].get("skills_dir") == skills_dir
+    }
+
+
+def _uninstall_skills(project: Path, conf: dict, stamp: dict, removed: list, removing: list) -> None:
+    """删 ours-by-name 的 ``drogon-*`` 技能目录。
+
+    两个约束:
+      1. 先判 ``is_dir()`` —— 同名**文件**会让 ``rmtree`` 抛错;
+      2. **引用计数** —— ``copilot`` 与 ``agents`` 共用 ``.agents/skills``,
+         卸载其一不得清空另一个仍在用的技能(与指令文件同构的共享资源保护)。
+    """
+    base_rel = conf["skills_dir"]
+    installed = [h for h in stamp.get("hosts", []) if h in HOSTS]
+    if _hosts_using_skills_dir(installed, base_rel) - set(removing):
+        return
+
+    base = project / base_rel
+    if not base.is_dir():
+        return
+    for d in sorted(base.glob("drogon-*")):
+        if not d.is_dir():
+            continue
+        shutil.rmtree(d)
+        removed.append(str(d.relative_to(project)))
+
+
+def _uninstall_rulefile(project: Path, conf: dict, stamp: dict, removed: list, removing: list) -> None:
+    rf = project / conf["rule_file"]
+    if rf.is_file():
+        rf.unlink()
+        removed.append(str(rf.relative_to(project)))
+
+
+def _hosts_using_instruction(installed: "list[str]", name: str) -> set:
+    """已安装宿主中,哪些依赖指令文件 ``name``。"""
+    return {
+        h for h in installed
+        if h in HOSTS and "instruction" in HOSTS[h]["kind"] and HOSTS[h]["file"] == name
+    }
+
+
+def _uninstall_instruction(project: Path, conf: dict, stamp: dict, removed: list, removing: list) -> None:
+    """指令文件可能被多个宿主共享(codex / qoder / copilot / agents 都用 AGENTS.md)。
+
+    仅当**移除本批宿主后已无任何已安装宿主再引用它**、且 stamp 记为 ``full``(由我们
+    创建)时才整份删除;否则退化为只剥标记段 —— 绝不删掉其它宿主仍在用的整文件。
+    回归来源:此前 ``install --host codex`` 后 ``uninstall --host qoder`` 会把 AGENTS.md 整份删掉。
+    """
+    name = conf["file"]
+    installed = [h for h in stamp.get("hosts", []) if h in HOSTS]
+    still_using = _hosts_using_instruction(installed, name) - set(removing)
+
+    if still_using:
+        # 仍被其它已安装宿主使用:整份保留(标记段也不能剥 —— 那段内容正是它们需要的)。
+        # 最后一个使用者被卸载时才会走到下面的删除/剥离分支。
+        return
+
+    action = stamp.get("instruction_files", {}).get(name)
+    if action == "full" and (project / name).is_file():
+        (project / name).unlink()
+        removed.append(name)
+    elif _strip_marker_section(project, name):
+        # 标记段已剥:同步清掉安装记录,否则 stamp 会因"文件仍存在(用户自有内容)"
+        # 而留下过期的 instruction_files → 安装戳残留、verify 显示半残状态。
+        stamp.setdefault("instruction_files", {}).pop(name, None)
+        removed.append(f"{name}(标记段)")
+
+
+# 宿主类型 -> 卸载动作(**显式映射**)。
+#
+# 为什么用映射而不是 if-链:此前用 `"skills" in kind / "rulefile" in kind /
+# "instruction" in kind` 三个判定,而 `bundle` 一个都不匹配 —— `uninstall --host claude`
+# 因此静默空操作(装得进、卸不掉)。映射之外,一致性门禁还会断言
+# "HOSTS 里出现的每一种 kind 都被此映射覆盖",让"新增宿主类型却忘记登记卸载动作"
+# 从"静默失效"变成"CI 报错"。
+_UNINSTALL_COMPONENT_ACTIONS = {
+    "bundle": _uninstall_bundle,
+    "skills": _uninstall_skills,
+    "rulefile": _uninstall_rulefile,
+    "instruction": _uninstall_instruction,
+}
+
+
+def uninstall_component_kinds() -> "list[str]":
+    """本 CLI 已登记卸载动作的宿主类型组件(供一致性门禁比对 HOSTS)。"""
+    return sorted(_UNINSTALL_COMPONENT_ACTIONS)
+
+
+def _uninstall_actions_for(kind: str):
+    """把(可能是复合的)kind 如 ``"skills+instruction"`` 拆成动作序列。
+
+    出现未登记组件时**抛出**而不是跳过 —— 静默跳过正是 C1 缺陷的成因。
+    """
+    try:
+        return tuple(_UNINSTALL_COMPONENT_ACTIONS[part] for part in kind.split("+"))
+    except KeyError as e:
+        raise KeyError(f"未登记卸载动作的宿主类型组件: {e.args[0]}") from None
+
+
+def _expand_bundle_group(hosts: list) -> list:
+    """bundle 宿主共用 ``.drogon-plugin/``:移除其一即移除整组。
+
+    安装时 ``--host claude`` 会在 stamp 里同时登记 claude 与 zcode(两者都因该
+    bundle 而可用);卸载若只摘掉 claude,stamp 会留下 zcode → 安装戳残留。
+    """
+    expanded = list(hosts)
+    if any(HOSTS[h]["kind"] == "bundle" for h in expanded):
+        for h, conf in HOSTS.items():
+            if conf["kind"] == "bundle" and h not in expanded:
+                expanded.append(h)
+    return expanded
+
+
 def _uninstall_hosts(project: Path, hosts: list, stamp: dict) -> list:
-    removed = []
-    for host in hosts:
+    effective = _expand_bundle_group(hosts)
+    removed: list = []
+    for host in effective:
         conf = HOSTS[host]
-        kind = conf["kind"]
-        if "skills" in kind:
-            base = project / conf["skills_dir"]
-            if base.is_dir():
-                for d in sorted(base.glob("drogon-*")):
-                    shutil.rmtree(d)
-                    removed.append(str(d.relative_to(project)))
-        if "rulefile" in kind:
-            rf = project / conf["rule_file"]
-            if rf.is_file():
-                rf.unlink()
-                removed.append(str(rf.relative_to(project)))
-        if "instruction" in kind:
-            name = conf["file"]
-            action = stamp.get("instruction_files", {}).get(name)
-            if action == "full" and (project / name).is_file():
-                (project / name).unlink()
-                removed.append(name)
-            elif _strip_marker_section(project, name):
-                removed.append(f"{name}(标记段)")
-    stamp["hosts"] = [h for h in stamp.get("hosts", []) if h not in hosts]
+        for action in _uninstall_actions_for(conf["kind"]):
+            action(project, conf, stamp, removed, effective)
+    stamp["hosts"] = [h for h in stamp.get("hosts", []) if h not in effective]
     return removed
+
+
+def _prune_stamp(project: Path, stamp: dict) -> None:
+    """剔掉已不存在的落点记录。
+
+    否则按宿主卸载后 ``stamp["files"]`` 仍非空,会把安装戳文件留在项目里(残留)。
+    """
+    stamp["files"] = [f for f in stamp.get("files", []) if (project / f).exists()]
+    stamp["instruction_files"] = {
+        n: a for n, a in stamp.get("instruction_files", {}).items() if (project / n).exists()
+    }
 
 
 def cmd_uninstall(args) -> int:
@@ -607,7 +830,8 @@ def cmd_uninstall(args) -> int:
             return 1
         removed = _uninstall_hosts(project, hosts, stamp)
         _cleanup_empty_dirs(project)
-        if stamp.get("hosts") or stamp.get("files"):
+        _prune_stamp(project, stamp)
+        if stamp.get("hosts") or stamp.get("files") or stamp.get("instruction_files"):
             _save_stamp(project, stamp)
         else:
             (project / _STAMP_V3).unlink(missing_ok=True)
@@ -677,17 +901,35 @@ def cmd_uninstall(args) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _scan_error(args, message: str, code: int) -> int:
+    """scan 的错误输出也遵守 ``--format json`` 契约。
+
+    回归来源:此前错误路径只往 stderr 打印并直接 return,若调用方用
+    ``--format json`` 解析 stdout 会拿到非 JSON。新增的 ``error`` 字段是**纯增量**
+    (``findings`` / ``total`` 的语义不变)。
+    """
+    if getattr(args, "format", "human") == "json":
+        print(
+            json.dumps(
+                {"error": message, "findings": [], "total": 0},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(f"❌ {message}", file=sys.stderr)
+    return code
+
+
 def cmd_scan(args) -> int:
     try:
         project = _project_dir(args)
     except ValueError as e:
-        print(f"❌ {e}", file=sys.stderr)
-        return 1
+        return _scan_error(args, str(e), 1)
 
     scanner_path = _find_assets() / "hooks" / "posttooluse.py"
     if not scanner_path.is_file():
-        print("❌ 未找到随包扫描器(hooks/posttooluse.py)", file=sys.stderr)
-        return 1
+        return _scan_error(args, "未找到随包扫描器(hooks/posttooluse.py)", 1)
 
     # 路径边界:每个被扫描路径必须解析到项目目录之内(防 ../ 逃逸读任意文件)
     raw_paths = getattr(args, "paths", None) or ["."]
@@ -696,11 +938,14 @@ def cmd_scan(args) -> int:
         candidate = Path(rp)
         resolved = candidate.resolve() if candidate.is_absolute() else (project / candidate).resolve()
         if resolved != project and not resolved.is_relative_to(project):
-            print(f"❌ 拒绝扫描项目外的路径: {rp}", file=sys.stderr)
-            return 2
+            return _scan_error(args, f"拒绝扫描项目外的路径: {rp}", 2)
         safe_paths.append(str(resolved.relative_to(project)))
 
     import importlib.util
+
+    # 动态加载随包扫描器时禁止写字节码缓存:否则会在资产目录里生成 __pycache__,
+    # 既污染随包资产(被 sync-assets --check 判为不一致),也不是我们管理的文件。
+    sys.dont_write_bytecode = True
 
     spec = importlib.util.spec_from_file_location("drogon_posttooluse_scan", scanner_path)
     mod = importlib.util.module_from_spec(spec)
@@ -770,7 +1015,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--target")
     p.set_defaults(func=cmd_upgrade)
 
-    p = sub.add_parser("uninstall", help="移除插件产物")
+    p = sub.add_parser(
+        "uninstall",
+        help="移除插件产物",
+        epilog=(
+            "粒度说明:claude/zcode 共用 .drogon-plugin/ bundle,按宿主粒度无法拆分,"
+            "卸载任一 bundle 宿主即移除整个 bundle;其它宿主只移除各自的落点。"
+        ),
+    )
     p.add_argument("--target")
     p.add_argument("--host", help="只移除指定宿主的产物(默认全部)")
     p.set_defaults(func=cmd_uninstall)
@@ -785,6 +1037,19 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("hosts", help="列出支持的宿主").set_defaults(func=cmd_hosts)
     sub.add_parser("version", help="显示版本").set_defaults(func=cmd_version)
     return parser
+
+
+def available_commands() -> "list[str]":
+    """本 CLI 支持的子命令集合(从解析器实枚举)。
+
+    供能力契约测试比对,避免维护第二份命令清单——实现改了解析器,
+    这里与 tests/test_hosts.py 的断言会同步感知。
+    """
+    parser = _build_parser()
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return sorted(action.choices.keys())
+    return []
 
 
 def _utf8_stdio() -> None:

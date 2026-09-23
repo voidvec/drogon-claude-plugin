@@ -54,7 +54,7 @@ callback 签名 `std::size_t(char *buf, std::size_t len)`：向 buf 写至多 le
 - 分块 64KB-1MB：过小 chunked 帧开销大，过大占用事件循环时间片；每次 send 检查返回值，false 立即停止并 close()。
 - 用 `runEvery`（trantor EventLoop.h:194）定时分批发送实现限速，结束用 `invalidateTimer`（EventLoop.h:222）取消；上传侧 dataCb 只做顺序写盘，勿每片 fsync。
 
-## 5. 禁止模式清单
+## 禁止模式清单
 
 1. `req->setStreamReader(...)`：API 不存在，编译错误；只能 `stream->setStreamReader(reader)`。
 2. finish 异常分支不 callback、或在 dataCb 中提前 callback：违反恰好一次纪律。

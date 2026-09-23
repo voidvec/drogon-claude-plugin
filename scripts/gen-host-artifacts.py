@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """宿主产物生成器 — 从单一事实源生成各 coding agent 宿主的接入产物.
 
-事实源:skills/(22 技能)+ CLAUDE.md(规则层)+ VERSION(版本单一来源)。
+事实源:skills/(技能数量由目录实枚举)+ CLAUDE.md(规则层)+ VERSION(版本单一来源)。
 
 生成(仓库内、随 git 提交):
   AGENTS.md                        通用规则文件(CLAUDE.md 去宿主专有内容)
@@ -54,6 +54,12 @@ def read_version() -> str:
     return VERSION_FILE.read_text(encoding="utf-8").strip()
 
 
+def skill_count() -> int:
+    """技能数量单一事实源:实枚举 skills/ 目录(禁止在任何产物里硬编码数字)。"""
+    d = REPO / "skills"
+    return len([p for p in d.iterdir() if p.is_dir()]) if d.is_dir() else 0
+
+
 # ---------------------------------------------------------------------------
 # AGENTS.md / GEMINI.md:CLAUDE.md → 宿主中立规则文件
 # ---------------------------------------------------------------------------
@@ -73,7 +79,7 @@ def build_agents_md(claude_md: str, version: str) -> str:
     header = "# Drogon 后端开发规则\n\n"
     note = GENERATED_HEADER_NOTE.format(v=version) + "\n"
     skills_note = (
-        ">\n> 下文的 Skill 路由表指向随插件分发的 22 个技能"
+        f">\n> 下文的 Skill 路由表指向随插件分发的 {skill_count()} 个技能"
         "(Claude Code / ZCode / Codex / Cursor / VS Code / Gemini CLI 经各自机制安装后可用)。"
         "若当前环境只落了规则文件,路由表仍可作为 drogon 领域地图使用。\n"
     )
@@ -100,7 +106,10 @@ def build_codex_plugin_json(version: str) -> str:
         "hooks": "./hooks/hooks.json",
         "interface": {
             "displayName": "Drogon C++ Backend",
-            "shortDescription": "Drogon C++ 后端开发规则与技能(异步回调/事件循环纪律 + 22 个代码生成技能)",
+            "shortDescription": (
+                "Drogon C++ 后端开发规则与技能"
+                f"(异步回调/事件循环纪律 + {skill_count()} 个代码生成技能)"
+            ),
             "category": "Software development",
         },
     }

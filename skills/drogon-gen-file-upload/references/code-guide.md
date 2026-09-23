@@ -8,7 +8,7 @@ Extract from user input:
 - `save_dir`: destination dir (optional; default = `app().getUploadPath()`)
 - `max_body_size`: body size cap string (optional, e.g. `"20M"`)
 
-## Forbidden APIs
+## 禁止模式清单
 
 - Assuming `MultiPartParser::parse()` returns bool / throws — it returns **int, 0 = success** (MultiPart.h:175).
 - Using client-controlled filename to build `saveAs()` path — path traversal risk. Use server-generated name or `getMd5()`.

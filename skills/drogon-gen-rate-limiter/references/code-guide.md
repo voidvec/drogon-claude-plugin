@@ -132,7 +132,7 @@ drogon::app().getRedisClient()->execCommandAsync(
 
 双回调纪律：fcb/fccb 移交异步回调后，成功与异常**每个路径都恰好调用一次**二者之一——早返回后不得再调，异常分支必须显式降级（fail-open 或 429 fail-close），禁止吞掉不调。
 
-## 5. 禁止模式清单
+## 禁止模式清单
 1. 多个事件循环线程共享**非 SafeRateLimiter** 的 RateLimiterPtr——数据竞争；必须 Safe 包装（RateLimiter.h:56-74）或 per-loop 独享。
 2. Hodor 字段拼错（本版本真实字段仅上表 12 个）：实际键是 `trust_ips`（Hodor.cc:109），Hodor.cc:112 的报错文案误写成 trusted_ips、勿被误导；`per_ip_traffics`/`use_token_bucket`/`session_limit`/`remap_address` 不存在，属旧版或臆造；`algorithm` 拼错（如 "tokenBucket"）不报错、静默回落令牌桶（RateLimiter.h:17-24）；`time_unit` 是秒数整数，不是 "60s" 字符串。
 3. 限流 429 响应丢 CORS 头——浏览器把 429 报成跨域失败，前端读不到 body；在 setRejectResponseFactory/Filter 拒绝分支补 `Access-Control-Allow-Origin`（若全站已用 registerPreSendingAdvice 加 CORS，429 也会过该链，HttpServer.cc:801）。

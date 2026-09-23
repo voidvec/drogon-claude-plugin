@@ -181,6 +181,16 @@ client->execCommandAsync(ok, err, "del %s %s", k1.c_str(), k2.c_str());
 - **错误处理**：`RedisException` 经失败回调传入，**禁止**忽略——失败回调中 `callback(错误响应)` + `LOG_ERROR`，确保响应被发送。
 - **订阅防泄漏**（`RedisSubscriber`）：`subscribe()` 后**必须**在合适时机 `unsubscribe()`，否则资源泄漏（源码 `RedisSubscriber.h:26-28`："until unsubscribe() is called ... or the subscriber/RedisClient who creates it no longer exists"）。订阅者析构函数应调用 `unsubscribe()` 兜底。
 
+## 禁止模式清单
+
+- **禁止**错误键名：`password`（应为 `passwd`）、`db_name` / `database`（应为 `db`）、`host` / `port` 层级写错。
+- **禁止**手动 `std::make_shared<RedisClient>(...)`——用 `app().getRedisClient()` 单例。
+- **禁止**使用同步重载 `execCommand<T>` 期待拿到结果——用 `execCommandAsync(successCb, failureCb, ...)`。
+- **禁止**漏掉失败回调：`RedisException` 经失败回调传入，必须 `callback(错误响应)` + `LOG_ERROR`。
+- **禁止**订阅后不 `unsubscribe()`（资源泄漏）；订阅者析构应兜底调用。
+- **禁止**在事件循环线程做阻塞 Redis 操作——本项目所有 Redis 调用都必须异步。
+- **禁止**把用户输入直接拼进命令字符串；参数用列表传递，二进制安全用 `%b`。
+
 ## 错误处理
 
 - `port` 不是有效的端口号：返回错误消息

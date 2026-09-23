@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-filter
-description: 生成 drogon Filter（请求拦截器）类及注册代码，支持认证、限流、输入校验等过滤类型。
-version: 0.1.0
+description: 需要拦截请求做认证 / 限流 / 输入校验时，生成 drogon Filter（请求拦截器）类与注册代码。
+license: MIT
 ---
 
 # drogon-gen-filter

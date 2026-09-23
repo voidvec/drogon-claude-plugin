@@ -7,7 +7,7 @@ Extract from user input:
 - `test_type`: Test type (`unit`/`integration`/`async_db`, default `unit`)
 - `assertions`: Assertion description (e.g. `status=200, body contains "success"`)
 
-## Forbidden APIs
+## 禁止模式清单
 
 - `done()` — **does not exist**, drogon has no async completion callback
 - `ASSERT_*` — Google Test macros, not used by drogon

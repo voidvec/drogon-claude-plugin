@@ -10,8 +10,25 @@
 *.yaml text eol=lf
 *.md text eol=lf
 *.toml text eol=lf
+*.txt text eol=lf
 *.bat text eol=crlf
 
 # cmd polyglot 启动器：Unix 侧由 bash 解释，必须 LF；cmd.exe 对无 goto 的
 # LF 批处理兼容良好（本仓库唯一 .cmd 即 run-hook.cmd）。
 *.cmd text eol=lf
+
+# 无扩展名的钩子脚本：上面按扩展名的规则**覆盖不到**它们，若不显式声明，
+# Windows 下 core.autocrlf=true（Git for Windows 默认）克隆会得到 CRLF，
+# bash 解析时 \r 会被当成命令的一部分 → 会话规则注入与编辑后扫描**静默失效**。
+hooks/session-start text eol=lf
+hooks/post-tool-use text eol=lf
+
+# 无扩展名的文本文件:按扩展名的规则同样覆盖不到,逐一显式声明 LF,
+# 让"全仓库文本一律 LF 入库/检出"这一策略没有漏网之鱼。
+.gitattributes text eol=lf
+.gitignore text eol=lf
+VERSION text eol=lf
+LICENSE text eol=lf
+MANIFEST.in text eol=lf
+# 扫描器 fixture
+*.cc text eol=lf

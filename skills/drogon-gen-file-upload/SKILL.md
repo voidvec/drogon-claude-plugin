@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-file-upload
-description: 生成 drogon 文件上传 handler（MultiPartParser 解析 + 校验 + 落盘），含 setClientMaxBodySize 配置提示。
-version: 0.1.0
+description: 需要处理文件上传（multipart 解析、类型与大小校验、落盘、路径穿越防护）时生成 drogon handler。
+license: MIT
 ---
 
 # drogon-gen-file-upload

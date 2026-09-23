@@ -8,7 +8,7 @@ Extract:
 - `middlewares`: comma-separated middleware/filter names (optional)
 - `regex`: `true` → use `registerHandlerViaRegex` (default `false`)
 
-## Forbidden patterns
+## 禁止模式清单
 
 - Mixing lambda routing with classic `HttpController`+`METHOD_ADD` for the same kind of route in one project — pick one style.
 - Adding path/query params in `newHttpClient` hostString — host is host only; path goes in the request (applies to client, but easy to confuse).

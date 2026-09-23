@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-test
-description: 生成 drogon DROGON_TEST 测试用例，支持单元测试、集成测试、异步数据库测试等类型。
-version: 0.2.0
+description: 需要为 drogon 项目编写 DROGON_TEST 测试（异步回调断言、数据库测试、自定义 main 与端口隔离）时生成用例。
+license: MIT
 ---
 
 # drogon-gen-test

@@ -290,6 +290,16 @@ int main()
 9. 静态库插件**必须**提供并在 main 调用 `ensureLinked()`；控制器注册走 `registerHandler`。
 10. 需要插件指针接线或完整路由表的逻辑放 BeginningAdvice，且按依赖序注册。
 
+## 禁止模式清单
+
+- **禁止**在 `initAndStart` 里阻塞（它在 `run()` 前同步执行）；耗时初始化丢 `std::async` 或线程池。
+- **禁止**在 `run()` 之前调用 `getPlugin` / `getDbClient`（插件与客户端尚未创建）。
+- **禁止**在 `shutdown()` 里先拆 DB/Redis 客户端——客户端此刻仍在，按初始化逆序清理。
+- **禁止**占用 app 全局事件循环跑长任务/定时器；用插件专属 `trantor::EventLoopThread`。
+- **禁止**用 `sleep` 猜测排水完成；用 promise 哨兵 + `invalidateTimer`。
+- **禁止**在业务代码里手动 `new Plugin()`；用 `app().getPlugin<T>()()`。
+- **禁止**依赖静态库插件的隐式自动注册——**必须**提供并在 `main` 调用 `ensureLinked()`。
+
 ## Error handling
 
 - `plugin_name` 为空：返回错误消息

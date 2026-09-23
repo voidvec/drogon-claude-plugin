@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-cmake
-description: 生成 drogon 项目的 CMakeLists.txt，支持 ORM、Redis、WebSocket、C++20、协程等特性。
-version: 0.2.0
+description: 需要为 drogon 项目编写 CMakeLists.txt（ORM / Redis / 协程 / CSP 视图、Conan 2 或 MSVC 特例）时生成构建脚本。
+license: MIT
 ---
 
 # drogon-gen-cmake

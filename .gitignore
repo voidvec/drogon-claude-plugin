@@ -34,6 +34,8 @@ Thumbs.db
 
 # Local tooling state (agent memory, not part of the repo)
 .workbuddy/
+# 同上:IDE 规划器生成的计划草稿,属开发过程产物,不进仓库
+.codebuddy/
 
 # Local package installs (for testing)
 /tmp/

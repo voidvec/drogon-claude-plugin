@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-plugin
-description: 生成 drogon Plugin（系统级扩展）类及配置声明，用于连接池、第三方 SDK 初始化等应用级生命周期管理。
-version: 0.2.0
+description: 需要应用级生命周期扩展（连接池、第三方 SDK 初始化、专属 EventLoopThread、shutdown 排水）时，生成 drogon Plugin 类与配置声明。
+license: MIT
 ---
 
 # drogon-gen-plugin

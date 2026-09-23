@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-middleware
-description: 生成 drogon Middleware（全局请求处理链）类及注册代码，支持日志、CORS、性能计时等类型。
-version: 0.1.0
+description: 需要全局请求处理链（日志 / CORS / 性能计时）时，生成 drogon Middleware 类与注册代码。
+license: MIT
 ---
 
 # drogon-gen-middleware

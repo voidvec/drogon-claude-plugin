@@ -7,7 +7,7 @@ Extract:
 - `return_type`: `Task<HttpResponsePtr>` / `AsyncTask` (only for `kind=handler`)
 - `class_name`: (only for `kind=middleware`)
 
-## Forbidden patterns
+## 禁止模式清单
 
 - Using coroutine APIs without confirming `__cpp_impl_coroutine` defined AND CMake `USE_COROUTINE=ON`.
 - Bare coroutine handler (`Task*`/`AsyncTask`) with **reference** params — Use-After-Free after suspend/resume.

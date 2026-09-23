@@ -7,7 +7,7 @@ Extract from user input:
 - `middleware_type`: Type (`logging`/`cors`/`timing`, default `logging`)
 - `modify_response`: Whether to modify the response (default `false`)
 
-## Forbidden APIs
+## 禁止模式清单
 
 - `ADD_MIDDLEWARE` macro — **does not exist**, use `app().registerMiddleware(...)` to register
 - `HttpMiddleware<ClassName>` without `AutoCreation` — must write `HttpMiddleware<ClassName, false>`, otherwise `registerMiddleware()`'s `static_assert(!T::isAutoCreation)` causes compilation failure (`HttpAppFramework.h:714-717`)

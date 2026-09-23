@@ -1,7 +1,7 @@
 ---
 name: drogon-gen-stream
 description: 需要流式处理大文件上传/GB级上传/流式下载/chunked 响应时，生成基于 RequestStream 与 newAsyncStreamResponse 的流式 handler 代码。
-version: 0.2.0
+license: MIT
 ---
 
 # drogon-gen-stream
