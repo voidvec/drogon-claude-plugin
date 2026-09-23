@@ -179,7 +179,7 @@ AI: [consulting CLAUDE.md async discipline] This handler's early-return path nev
 ├── .github/workflows/
 │   ├── ci.yml              # 3-OS matrix: structure + hooks + CLI smoke tests
 │   └── publish.yml         # tag-triggered → PyPI + npm + GitHub Release
-├── scripts/                # build helpers (asset sync + smoke tests)
+├── scripts/                # host-artifact generator, asset sync, consistency gate, smoke tests
 ├── hooks/
 │   ├── hooks.json          # SessionStart + PostToolUse registration
 │   ├── run-hook.cmd        # cross-platform polyglot launcher
@@ -187,9 +187,13 @@ AI: [consulting CLAUDE.md async discipline] This handler's early-return path nev
 │   ├── post-tool-use       # finds a Python 3, degrades gracefully
 │   └── posttooluse.py      # violation scanner
 ├── skills/                 # 22 code-generation skills
-├── tests/                  # pytest: scanners, structure, hook e2e
+├── docs/
+│   ├── SKILL-AUTHORING.md  # skill authoring manual (fields, structure, sync checklist)
+│   └── PROFESSIONALIZATION-REVIEW.md  # professionalization audit + improvement backlog
+├── tests/                  # pytest: scanners, structure, rule fixtures, hook e2e
 ├── src/drogon_plugin/      # PyPI package (CLI installer)
 ├── npm/                    # npm package (CLI installer)
+├── requirements-dev.txt    # pinned dev/CI dependencies (runtime deps: none)
 ├── CLAUDE.md               # rules layer
 └── CHANGELOG.md
 ```
