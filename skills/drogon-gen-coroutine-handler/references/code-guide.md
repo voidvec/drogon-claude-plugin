@@ -99,12 +99,12 @@ auto resp = co_await client->sendRequestCoro(req, 5.0);  // throws HttpException
 
 ### forward (coroutine reverse proxy)
 
-协程版反向代理用 `app().forwardCoro(req, host, port)`，避免自建 client + 手动复制 header：
+协程版反向代理用 `app().forwardCoro(req, hostString [, timeout])`，避免自建 client + 手动复制 header。**目标端口写在 hostString 里**（`"host:port"`）；第三参是 `timeout`（秒，double，0 = 用默认），**不是端口**（HttpAppFramework.h forward 系列同形）：
 
 ```cpp
 drogon::Task<HttpResponsePtr> proxy(const HttpRequestPtr &req) {
     try {
-        auto resp = co_await app().forwardCoro(req, "backend.example.com", 8080);
+        auto resp = co_await app().forwardCoro(req, "backend.example.com:8080");
         co_return resp;
     } catch (const std::exception &e) {
         LOG_ERROR << "forward failed: " << e.what();

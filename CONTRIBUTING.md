@@ -24,7 +24,9 @@
 - Codex 是否容忍 `hooks.json` 中的 `shell` 字段与 matcher 中的 `MultiEdit`（Claude 专有工具名）；
 - Codex 的 `interface` 块是否需要更多字段（官方文档称"其余字段可选"，未给必填清单）；
 - `.agents/plugins/marketplace.json` 的 `source.path: "./"` 在 Codex 缓存安装下的解析基准；
-- Trae 是否识别 `.mdc` 扩展名与空值 `globs:`；Cursor 空值 `globs:` 的行为。
+- ~~Trae 是否识别 `.mdc`~~ 已于第三轮评审证伪（官方规则为 `.trae/rules/*.md`），Trae 已改走 `.trae/skills` + `AGENTS.md`；Cursor 空值 `globs:` 的行为仍待真机。
+
+第三轮新增待真机项（见 [`docs/ROUND3-SPEC-HOST-PLATFORM-CORRECTNESS-REVIEW.md`](docs/ROUND3-SPEC-HOST-PLATFORM-CORRECTNESS-REVIEW.md) §5）：V7 = pip 解包 wheel 后钩子脚本可执行位是否保留；V8 = Codex `additionalContext` token 上限下中文规则全文注入是否降级。
 
 ## 开发约定
 

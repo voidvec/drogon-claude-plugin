@@ -14,6 +14,7 @@ Run:  python -m pytest tests/test_posttooluse.py
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -205,13 +206,14 @@ def test_test_category_inherits_cpp_rules():
 # ---------------------------------------------------------------------------
 
 
-def _hook(payload: dict):
+def _hook(payload: dict, env=None):
     p = subprocess.run(
         [sys.executable, str(HOOK)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
         encoding="utf-8",
+        env=env,
     )
     assert p.returncode == 0, p.stderr
     return json.loads(p.stdout)
@@ -307,6 +309,160 @@ def test_scan_json_error_path_emits_json(tmp_path):
     data = json.loads(r.stdout)  # 必须是合法 JSON
     assert "error" in data and data["error"]
     assert data["findings"] == [] and data["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# 回归(第三轮):stdin 编码 / 畸形输入 / Codex apply_patch(R3/P1/R5)
+# ---------------------------------------------------------------------------
+
+_APPLY_PATCH_PAYLOAD = {
+    "tool_name": "apply_patch",
+    "tool_input": {
+        "command": (
+            "*** Begin Patch\n"
+            "*** Update File: src/UserCtrl.cc\n"
+            "@@\n"
+            "+void f() { FILTER_ADD(x); }\n"
+            "*** End Patch\n"
+        )
+    },
+}
+
+
+def test_invalid_stdin_byte_is_graceful_and_still_scans():
+    """回归(P1):stdin 以严格解码读取时,0x81 对 UTF-8(及 cp1252)都是非法
+    字节,曾让 json.load 抛 UnicodeDecodeError → traceback + rc=1。
+
+    用 PYTHONIOENCODING=utf-8:strict 强制复现(不依赖各平台 locale),修复
+    (stdin 以 utf-8+replace 重配置)后应优雅降级,且替换符不影响 FILTER_ADD
+    命中 —— 降级 ≠ 放弃扫描。
+    """
+    payload = (
+        b'{"tool_name": "Write", "tool_input": {"file_path": "a.cc", '
+        b'"content": "// \x81 FILTER_ADD(x);"}}'
+    )
+    r = subprocess.run(
+        [sys.executable, str(HOOK)],
+        input=payload,
+        capture_output=True,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8:strict"),
+        cwd=str(REPO_ROOT),
+    )
+    out = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
+    assert r.returncode == 0, "P1 复发: rc=%s\n%s" % (r.returncode, out)
+    assert "Traceback" not in out, out
+    data = json.loads(out[out.index("{"):])
+    assert "CPP.001" in data.get("systemMessage", ""), f"降级后未继续扫描: {data}"
+
+
+
+
+def test_malformed_tool_input_is_graceful():
+    """回归(R5):tool_input 非 dict 曾 AttributeError → traceback + rc=1。"""
+    assert _hook({"tool_name": "Write"}) == {}
+    assert _hook({"tool_name": "Write", "tool_input": None}) == {}
+    r = subprocess.run(
+        [sys.executable, str(HOOK)],
+        input=json.dumps({"tool_name": "Edit", "tool_input": "oops"}),
+        capture_output=True, text=True, encoding="utf-8", cwd=str(REPO_ROOT),
+    )
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "Traceback" not in (r.stderr + r.stdout)
+    assert json.loads(r.stdout) == {}
+
+
+def test_malformed_edits_list_is_graceful():
+    """回归(R5):edits 为字符串数组(畸形)不得崩溃。"""
+    assert _hook({
+        "tool_name": "MultiEdit",
+        "tool_input": {"file_path": "x.cc", "edits": ["not-a-dict"]},
+    }) == {}
+
+
+def test_unknown_tool_with_file_payload_is_scanned():
+    """回归(R3):白名单改黑名单后,携带 file_path/content 的未知编辑类工具也要被扫。"""
+    data = _hook({
+        "tool_name": "search_replace",
+        "tool_input": {"file_path": "x.cc", "content": "void f() { FILTER_ADD(x); }"},
+    })
+    assert "CPP.001" in data.get("systemMessage", ""), "未知编辑工具未被扫描"
+
+
+def test_known_non_file_tools_stay_silent():
+    """回归(R3):黑名单内的非文件工具必须秒退,避免无谓扫描。"""
+    for tool in ("Bash", "read_file", "web_search", "list_dir"):
+        assert _hook({"tool_name": tool, "tool_input": {"command": "FILTER_ADD(x)"}}) == {}
+
+
+def test_apply_patch_payload_is_scanned():
+    """回归(R3):Codex 的 canonical 工具名是 apply_patch(官方 hook_names.rs),
+    payload 为 {"command": <patch 文本>};扫描器必须解析补丁新增行,而非空转。"""
+    data = _hook(_APPLY_PATCH_PAYLOAD)
+    msg = data.get("systemMessage", "")
+    assert "CPP.001" in msg, f"apply_patch 补丁新增行未被扫描: {data}"
+    assert "UserCtrl.cc" in msg, "未能从 Update File 头解析出文件名"
+
+
+def test_apply_patch_clean_patch_is_silent():
+    assert _hook({
+        "tool_name": "apply_patch",
+        "tool_input": {"command": (
+            "*** Begin Patch\n*** Update File: src/Ok.cc\n"
+            "@@\n+int main() { return 0; }\n*** End Patch\n")},
+    }) == {}
+
+
+# ---------------------------------------------------------------------------
+# 回归(第三轮 R6):CFG 规则必须同时覆盖 JSON 与 YAML 两种形态
+# ---------------------------------------------------------------------------
+
+YAML_POSITIVES = {
+    "CFG.001": "db_clients:\n  - password: secret\n",
+    "CFG.002": "db_clients:\n  - username: root\n",
+    "CFG.003": "listeners:\n  - ssl: \"true\"\n",
+}
+YAML_NEGATIVES = {
+    "CFG.001": "db_clients:\n  - passwd: secret\n",
+    "CFG.002": "db_clients:\n  - user: root\n",
+    "CFG.003": "listeners:\n  - ssl: true\n",
+}
+
+
+@pytest.mark.parametrize("rule_id", sorted(YAML_POSITIVES))
+def test_cfg_rules_match_yaml_form(rule_id):
+    """回归(R6):三条 CFG 规则此前全要求双引号键,YAML 配置整体漏报。"""
+    rule = _rule(rule_id)
+    assert ptu.scan_text(YAML_POSITIVES[rule_id], [rule]), f"{rule_id}: YAML 形态未匹配"
+
+
+@pytest.mark.parametrize("rule_id", sorted(YAML_NEGATIVES))
+def test_cfg_rules_yaml_negatives(rule_id):
+    rule = _rule(rule_id)
+    hits = [h.rule_id for h in ptu.scan_text(YAML_NEGATIVES[rule_id], [rule])]
+    assert not hits, f"{rule_id}: YAML 负例误报 {hits}"
+
+
+def test_yaml_config_scan_end_to_end(tmp_path):
+    """端到端:conf/config.yaml 里的 password/username 必须被 --scan 抓到。"""
+    (tmp_path / "conf").mkdir()
+    (tmp_path / "conf" / "config.yaml").write_text(
+        "db_clients:\n  - password: secret\n    username: root\n", encoding="utf-8"
+    )
+    import os
+
+    old = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        r = subprocess.run(
+            [sys.executable, str(HOOK), "--scan", "--format", "json", "."],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    finally:
+        os.chdir(old)
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    ids = {x["rule_id"] for fnd in data["findings"] for x in fnd["rules"]}
+    assert {"CFG.001", "CFG.002"} <= ids, f"YAML 配置漏报: {data}"
 
 
 if __name__ == "__main__":

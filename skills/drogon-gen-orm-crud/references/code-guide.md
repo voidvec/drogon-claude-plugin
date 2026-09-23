@@ -75,8 +75,10 @@ void Ctrl::get${Table}(const HttpRequestPtr &req,
 **batch_insert**：
 ```cpp
 // 提示用户：批量操作必须在独立线程池执行（不得在事件循环线程阻塞），
-// 完成后用 runInLoop/queueInLoop 派回连接所属循环再 callback。
-std::thread([callback, items]() {
+// 完成后用 queueInLoop 派回连接所属循环再 callback。
+// 注意：loop 必须在进入工作线程**之前**捕获（req->getLoop()）——
+// getEventLoopOfCurrentThread() 在无循环的线程返回 nullptr，直接解引用必崩。
+std::thread([callback, items, loop = req->getLoop()]() {
     try {
         auto client = app().getDbClient();
         auto trans = client->newTransaction();
@@ -85,13 +87,13 @@ std::thread([callback, items]() {
         }
         // 析构时自动提交
         
-        trantor::EventLoop::getEventLoopOfCurrentThread()->queueInLoop([callback]() {
+        loop->queueInLoop([callback]() {
             auto resp = HttpResponse::newHttpResponse();
             resp->setBody("batch insert success");
             callback(resp);
         });
     } catch (const orm::DrogonDbException &e) {
-        trantor::EventLoop::getEventLoopOfCurrentThread()->queueInLoop([callback]() {
+        loop->queueInLoop([callback]() {
             auto resp = HttpResponse::newHttpResponse();
             resp->setStatusCode(k500InternalServerError);
             resp->setBody("batch insert error");
@@ -99,7 +101,8 @@ std::thread([callback, items]() {
         });
     }
 }).detach();
-// 提示：生产环境应使用更健壮的线程池库，确保线程池在应用退出时清理
+// 提示：handler 签名为 (const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback)。
+// 生产环境应使用更健壮的线程池库，确保线程池在应用退出时清理
 ```
 
 ## 禁止模式清单

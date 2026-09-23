@@ -170,11 +170,37 @@ def test_hooks_json_is_valid_and_uses_run_hook_cmd():
         assert entry.get("timeout", 0) >= 5, f"{event} timeout too tight"
 
 
-def test_session_start_matcher_covers_resume():
-    """回归(H1):来源集合为 startup/resume/clear/compact,漏 resume 会导致会话恢复不注入规则。"""
+SESSION_START_SOURCES = {"startup", "resume", "clear", "compact", "fork"}
+
+
+def _matcher_matches_session(matcher: str) -> "set[str]":
+    return matcher.split("|") if matcher != "*" else SESSION_START_SOURCES
+
+
+def test_session_start_matcher_covers_all_sources():
+    """回归(R2/H1):来源集合为 startup/resume/clear/compact/fork(官方文档)。
+
+    弱子串断言曾让 `startup|resume|clear|compact` 通过却漏掉 fork —— 必须按
+    集合覆盖断言(或直接 `*"`)。漏任一来源 = 该场景规则静默不注入。
+    """
     data = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))
-    entry = data["hooks"]["SessionStart"][0]
-    assert "resume" in entry["matcher"], f"SessionStart matcher 未覆盖 resume: {entry['matcher']}"
+    for entry in data["hooks"]["SessionStart"]:
+        covered = set(_matcher_matches_session(entry["matcher"]))
+        missing = SESSION_START_SOURCES - covered
+        assert not missing, f"SessionStart matcher “{entry['matcher']}” 未覆盖来源 {missing}"
+
+
+def test_posttooluse_matcher_fires_for_codex_apply_patch():
+    """回归(R2/R3 配套):Codex 的 canonical 工具名是 apply_patch,Write/Edit 只是
+    matcher 别名;若 matcher 按名枚举且漏掉 apply_patch,钩子在 Codex 上永不触发。
+    """
+    data = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))
+    for entry in data["hooks"]["PostToolUse"]:
+        matcher = entry["matcher"]
+        def fires(tool):
+            return matcher == "*" or re.fullmatch(matcher, tool)
+        for tool in ("Write", "Edit", "MultiEdit", "apply_patch"):
+            assert fires(tool), f"PostToolUse matcher “{matcher}” 不会触发 {tool}"
 
 
 def test_session_start_strips_control_chars(tmp_path):

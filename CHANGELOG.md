@@ -8,6 +8,26 @@
 
 仓库专业化改造。诊断报告见 `docs/PROFESSIONALIZATION-REVIEW.md`,技能作者手册见 `docs/SKILL-AUTHORING.md`。
 
+### Fixed — 第三轮评审整改（插件规范性 / 宿主兼容性 / 平台兼容性 / 功能正确性）
+
+评审记录与依据见 `docs/ROUND3-SPEC-HOST-PLATFORM-CORRECTNESS-REVIEW.md`（R1–R10、P1/P2、N3–N7）。
+
+- **Codex 上 PostToolUse 扫描必然空转**（R3）：Codex 的 canonical 工具名是 `apply_patch`（`Write`/`Edit` 只是 matcher 别名），payload 无 `file_path`。工具名**白名单改黑名单**（`NON_FILE_TOOLS`），并新增 `apply_patch` 补丁解析——按 `*** Update/Add File:` 头逐文件抽取 `+` 新增行扫描；`hooks.json` 的 PostToolUse matcher 补 `apply_patch`。
+- **SessionStart matcher 漏 `fork`**（R2）：来源集合现为 `startup/resume/clear/compact/fork`；matcher 补全，测试与门禁由"子串含 resume"的弱断言升级为**集合覆盖断言**。
+- **Windows stdin 编码崩溃**（P1）：钩子负载是 UTF-8 JSON，stdin 走 locale 编码时非法字节让 `json.load` 抛 `UnicodeDecodeError` → traceback + 退出码 1。`_utf8_stdio()` 现同时以 `utf-8+replace` 重配置 stdin（降级不丢扫描），stdin 异常捕获放宽为 `ValueError`。
+- **畸形 stdin traceback 逃逸**（R5）：`tool_input` 非 dict / `edits` 为字符串数组不再崩溃；钩子分支整体 try 兜底，违约的"never blocks"契约补齐。
+- **`upgrade` 破坏安装契约**（R4）：旧实现无条件 `force_agents=True` 且按 `ALL_HOSTS` 重装——给用户只装过部分宿主的项目凭空落下其余宿主产物，并把标记段强推进用户自有 `AGENTS.md`。新语义：范围 = 安装戳中已安装宿主（`--host` 可显式覆盖），marker 追加为显式 opt-in（`--force-agents`），无安装戳退化为全量安装。
+- **CFG 规则对 YAML 整体漏报**（R6）：三条配置规则原要求双引号 JSON 键，`config.yaml` 的 `password:`/`username:`/`ssl: "true"` 全部漏检；改为 JSON/YAML 双形态模式（`(?<![\w."])` 边界防 `db_password` 类误报）。
+- **技能模板 API 错误**（R7）：`drogon-gen-orm-crud` batch_insert 模板在无循环线程上调 `getEventLoopOfCurrentThread()->queueInLoop(…)`（trantor 文档明示返回 nullptr，必崩）→ 改为进线程前捕获 `req->getLoop()`；`drogon-gen-coroutine-handler` 的 `forwardCoro(req, host, port)`（第三参实为 timeout 非端口）→ 改 `forwardCoro(req, "host:port")`。新增技能文档**已知错误模式内容门禁**防回归。
+- **marketplace 本地 source 形态**（R1）：`.claude-plugin/marketplace.json` 的 `"source": "."` 违反官方硬约束"Local plugin sources must start with `./`" → 改 `"./"`，并进门禁。
+- **Trae 规则落点证伪**（R10）：官方规则为 `.trae/rules/*.md`、文档零处 `.mdc`，旧产物是宿主不读的 inert 文件；Trae 改走 `.trae/skills` + `AGENTS.md` 双通道，旧 `.mdc` 进无戳兜底清扫清单。
+- **npm 分发丢可执行位**（P2）：`copyFileSync` 不携带源 mode，Linux/macOS 落地后钩子脚本无 x 位 → 钩子静默失效；`copyAssets` 后对 4 个钩子文件显式 `chmodSync(0o755)`。
+
+### Added — 第三轮
+
+- 一致性门禁 **12 → 14 项**：新增「本地 marketplace source 以 ./ 开头」「npm 钩子保留可执行位」；「SessionStart matcher」检查升级为全来源集合覆盖。
+- 回归测试净增 ~20 例：apply_patch 补丁扫描（正/反）、未知编辑工具被扫、非文件工具黑名单静默、畸形 payload 四形态、非法字节 stdin 优雅降级且仍出告警、YAML CFG 正/负例与端到端、matcher 集合断言 ×2、upgrade 范围/幂等/不触碰用户文件/显式 `--host --force-agents`、Trae 新落点装-卸互逆、marketplace `./`、技能文档错误 API 模式守卫、npm 钩子 x 位（POSIX）。
+
 ### Fixed — 第二轮评审整改（规范符合性 / 功能正确性 / 多宿主兼容性）
 
 评审记录与依据见 `docs/SPEC-CORRECTNESS-COMPAT-REVIEW.md`。

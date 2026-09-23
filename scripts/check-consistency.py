@@ -257,11 +257,15 @@ def _check_no_hardcoded_skill_count() -> "list[str]":
     return problems
 
 
-def _check_session_start_matcher_covers_resume() -> "list[str]":
-    """SessionStart 的 matcher 必须覆盖 resume。
+SESSION_START_SOURCES = {"startup", "resume", "clear", "compact", "fork"}
 
-    来源取值集合为 startup/resume/clear/compact(Claude 与 Codex 一致)。
-    漏 resume 会让"会话恢复"时不注入规则 —— 静默失效,故入闸。
+
+def _check_session_start_matcher_covers_resume() -> "list[str]":
+    """SessionStart 的 matcher 必须覆盖全部已知来源。
+
+    来源取值集合为 startup/resume/clear/compact/fork(Claude 与 Codex 一致)。
+    弱子串断言会被 `startup|resume|clear|compact` 这类"缺 fork"枚举蒙过 ——
+    漏任一来源即"该场景不注入规则"的静默失效,故按集合覆盖校验(或 `*`)。
     """
     data = json.loads(read("hooks/hooks.json"))
     entries = data.get("hooks", {}).get("SessionStart", [])
@@ -270,10 +274,12 @@ def _check_session_start_matcher_covers_resume() -> "list[str]":
     problems = []
     for entry in entries:
         matcher = entry.get("matcher", "")
-        if "resume" not in matcher:
+        covered = SESSION_START_SOURCES if matcher == "*" else set(matcher.split("|"))
+        missing = sorted(SESSION_START_SOURCES - covered)
+        if missing:
             problems.append(
-                f"hooks/hooks.json: SessionStart matcher “{matcher}” 未覆盖 resume"
-                "(会话恢复时规则不会注入)"
+                f"hooks/hooks.json: SessionStart matcher “{matcher}” 未覆盖来源 {missing}"
+                "(对应场景下规则不会注入)"
             )
     return problems
 
@@ -388,6 +394,45 @@ def _check_hook_rules_have_ids() -> "list[str]":
     return problems
 
 
+def _check_marketplace_local_sources() -> "list[str]":
+    """本地 marketplace source 必须以 ./ 开头(官方文档硬约束,回归 R1)。
+
+    Claude 系条目 source 是字符串,Codex 系是 {source:"local", path};两种形态
+    都盖。`.` / 绝对路径形态会让宿主解析失败,且只在使用者安装时才暴露。
+    """
+    problems = []
+    for rel in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"):
+        data = json.loads(read(rel))
+        for e in data.get("plugins", []):
+            src = e.get("source")
+            value = src if isinstance(src, str) else (
+                src.get("path") if isinstance(src, dict) and src.get("source") == "local" else None
+            )
+            if value is not None and not value.startswith("./"):
+                problems.append(
+                    f"{rel}: 插件 {e.get('name', '?')} 的本地 source {value!r} 未以 ./ 开头"
+                    '(官方文档:"Local plugin sources must start with ./")'
+                )
+    return problems
+
+
+def _check_npm_hooks_keep_exec_bit() -> "list[str]":
+    """npm 复制资产后必须给钩子脚本补可执行位(回归 P2)。
+
+    fs.copyFileSync 不携带源 mode;Linux/macOS 上 hooks/session-start 等
+    落地即失去 x 位 → 宿主执行 command 时 Permission denied,钩子静默失效。
+    静态守卫:四个钩子文件都出现在 chmod 逻辑覆盖的文件清单里。
+    """
+    src = read("npm/bin/cli.js")
+    if "chmodSync" not in src:
+        return ["npm/bin/cli.js: 复制资产后无 chmodSync —— POSIX 下钩子脚本丢可执行位(P2)"]
+    problems = []
+    for rel in ("run-hook.cmd", "session-start", "post-tool-use", "posttooluse.py"):
+        if rel not in src:
+            problems.append(f"npm/bin/cli.js: 钩子 chmod 清单缺 {rel}")
+    return problems
+
+
 CHECKS = (
     ("README 计数与事实源一致", _check_readme_counts),
     ("双语 README 技能覆盖完整", _check_readme_skill_coverage),
@@ -396,11 +441,13 @@ CHECKS = (
     ("CLI 能力契约与实现一致", _check_cli_capability_contract),
     ("无硬编码技能数量", _check_no_hardcoded_skill_count),
     ("钩子规则 ID 唯一", _check_hook_rules_have_ids),
-    ("SessionStart matcher 覆盖 resume", _check_session_start_matcher_covers_resume),
+    ("SessionStart matcher 覆盖全部来源", _check_session_start_matcher_covers_resume),
     ("无扩展名钩子脚本固定 LF", _check_extensionless_hook_scripts_are_lf_pinned),
     ("宿主类型均有卸载动作", _check_uninstall_kinds_covered),
     ("规则文件无控制字符", _check_rule_files_have_no_control_chars),
     ("npm 受管条目与同步器等价", _check_npm_managed_entries_match_sync),
+    ("本地 marketplace source 以 ./ 开头", _check_marketplace_local_sources),
+    ("npm 钩子保留可执行位", _check_npm_hooks_keep_exec_bit),
 )
 
 
