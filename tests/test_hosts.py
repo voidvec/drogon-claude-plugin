@@ -237,6 +237,17 @@ def test_npm_cli_install_verify_uninstall(tmp_path):
     assert (p / ".drogon-plugin" / ".claude-plugin" / "plugin.json").is_file()
     assert (p / ".drogon-plugin" / "skills").is_dir()
 
+    # 回归(P2):copyFileSync 不携带源 mode,Linux/macOS 上钩子脚本丢可执行位
+    # → 宿主直接执行 command 时 Permission denied、钩子静默失效。
+    if sys.platform != "win32":
+        import stat
+
+        for rel in ("hooks/run-hook.cmd", "hooks/session-start",
+                    "hooks/post-tool-use", "hooks/posttooluse.py"):
+            f = p / ".drogon-plugin" / rel
+            assert f.is_file(), f"缺少 {rel}"
+            assert stat.S_IXUSR & f.stat().st_mode, f"{rel}: 丢可执行位(copyFileSync 不保 mode)"
+
     # 回归(C4):无论走打包资产还是源码树回退,都**不得**把仓库级的非受管条目
     # 复制进用户项目(此前回退模式会把 .git / node_modules / tests 整仓拖进来)
     for unmanaged in ("scripts", "tests", "npm", "docs", ".github", ".git", "package.json"):
@@ -382,7 +393,10 @@ def test_install_all_hosts_artifacts(tmp_path):
     assert (p / ".drogon-plugin" / ".claude-plugin" / "plugin.json").is_file()
     assert len(list((p / ".cursor" / "skills").iterdir())) == SKILL_COUNT
     assert (p / ".cursor" / "rules" / "drogon-plugin.mdc").is_file()
-    assert (p / ".trae" / "rules" / "drogon-plugin.mdc").is_file()
+    # 回归(R10):Trae 官方规则是 .trae/rules/*.md,文档零处 .mdc;改为
+    # skills(.trae/skills)+ AGENTS.md 指令文件双通道,不再投放 inert 的 .mdc
+    assert len(list((p / ".trae" / "skills").iterdir())) == SKILL_COUNT
+    assert not (p / ".trae" / "rules").exists()
     for name in ("AGENTS.md", "GEMINI.md", "CODEBUDDY.md"):
         f = p / name
         assert f.is_file() and MARKER_BEGIN in f.read_text(encoding="utf-8")
@@ -446,12 +460,84 @@ def test_unknown_host_rejected(tmp_path):
     assert _run_cli("install", "--target", str(p), "--host", "notahost") == 1
 
 
+def test_trae_host_installs_skills_and_agents_md_not_mdc(tmp_path):
+    """回归(R10):Trae 官方文档规则落点为 .trae/rules/*.md,从未支持 .mdc;
+    旧产物 .trae/rules/drogon-plugin.mdc 是宿主不读的 inert 文件。
+    新落点 = .trae/skills(技能)+ AGENTS.md(规则,Trae 官方兼容)。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "trae") == 0
+    assert len(list((p / ".trae" / "skills").iterdir())) == SKILL_COUNT
+    assert MARKER_BEGIN in (p / "AGENTS.md").read_text(encoding="utf-8")
+    assert not (p / ".trae" / "rules").exists(), "仍投放 Trae 不读取的 .mdc"
+    # 幂等卸载:对称互逆(参数化测试之外再钉死本宿主的空目录清理)
+    assert _run_cli("uninstall", "--target", str(p), "--host", "trae") == 0
+    assert sorted(x.name for x in p.iterdir()) == []
+
+
+def test_upgrade_is_idempotent_for_installed_hosts(tmp_path):
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "trae") == 0
+    left_before = sorted(x.name for x in p.rglob("*") if x.is_file())
+    assert _run_cli("upgrade", "--target", str(p)) == 0
+    left_after = sorted(x.name for x in p.rglob("*") if x.is_file())
+    assert left_after == left_before, "upgrade 应幂等,不新增/丢失文件"
+
+
 def test_verify_reports_hosts(tmp_path, capsys):
     p = _make_project(tmp_path)
     _run_cli("install", "--target", str(p))
     assert _run_cli("verify", "--target", str(p)) == 0
     out = capsys.readouterr().out
     assert "cursor✅" in out and "copilot—" in out
+
+
+# ---------------------------------------------------------------------------
+# upgrade 语义(回归 R4:曾无条件 force_agents=True 且按 ALL_HOSTS 重装,
+# 把标记段强推进用户自有 AGENTS.md,并给用户只装过 cursor 的项目凭空落下
+# gemini/codebuddy/trae 等八个宿主的产物)
+# ---------------------------------------------------------------------------
+
+
+def test_upgrade_only_repairs_installed_hosts(tmp_path):
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "cursor,gemini") == 0
+    assert _run_cli("upgrade", "--target", str(p)) == 0
+    # cursor/gemini 的产物完好
+    assert (p / ".cursor" / "rules" / "drogon-plugin.mdc").is_file()
+    assert (p / "GEMINI.md").is_file()
+    # 未安装宿主不得被 upgrade 凭空落地
+    assert not (p / "CODEBUDDY.md").exists(), "upgrade 按 ALL_HOSTS 重装:codebuddy 凭空出现"
+    assert not (p / ".trae").exists(), "upgrade 按 ALL_HOSTS 重装:trae 凭空出现"
+    assert not (p / "AGENTS.md").exists(), "upgrade 按 ALL_HOSTS 重装:codex/qoder 凭空出现"
+    stamp = json.loads((p / ".drogon-plugin-install.json").read_text(encoding="utf-8"))
+    assert sorted(stamp["hosts"]) == ["cursor", "gemini"]
+
+
+def test_upgrade_never_forces_marker_into_user_instruction_files(tmp_path):
+    """用户自有 AGENTS.md:upgrade 默认(不带 --force-agents)必须一字不动。"""
+    p = _make_project(tmp_path, with_user_agents=True)
+    assert _run_cli("install", "--target", str(p), "--host", "cursor") == 0
+    assert _run_cli("upgrade", "--target", str(p)) == 0
+    assert (p / "AGENTS.md").read_text(encoding="utf-8") == "# 我的项目规则\n\n- 自有规则\n"
+
+
+def test_upgrade_accepts_explicit_host_and_force_agents(tmp_path):
+    """upgrade 与 install 共享粒度参数:--host 指定范围,--force-agents 显式 opt-in。"""
+    p = _make_project(tmp_path, with_user_agents=True)
+    assert _run_cli("install", "--target", str(p), "--host", "cursor") == 0
+    # 显式 --host codex → 落地 AGENTS.md(marker 追加需 --force-agents)
+    assert _run_cli("upgrade", "--target", str(p), "--host", "codex", "--force-agents") == 0
+    text = (p / "AGENTS.md").read_text(encoding="utf-8")
+    assert text.startswith("# 我的项目规则") and MARKER_BEGIN in text
+    stamp = json.loads((p / ".drogon-plugin-install.json").read_text(encoding="utf-8"))
+    assert sorted(stamp["hosts"]) == ["codex", "cursor"]
+
+
+def test_upgrade_without_stamp_falls_back_to_full_install(tmp_path):
+    """无安装戳(手工删过 / 全新项目)→ upgrade 等价全量 install,保持向后兼容。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("upgrade", "--target", str(p)) == 0
+    assert (p / "GEMINI.md").is_file() and (p / ".cursor").is_dir()
 
 
 # ---------------------------------------------------------------------------

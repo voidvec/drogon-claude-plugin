@@ -38,6 +38,14 @@ jobs:
       - name: Assert host artifacts and manifest versions
         run: python scripts/gen-host-artifacts.py --check
 
+      - name: Pre-publish gates (consistency + asset sync + full test suite)
+        run: |
+          pip install -r requirements-dev.txt
+          python scripts/check-consistency.py
+          python scripts/sync-assets.py --check
+          node scripts/sync-assets.mjs --check
+          python -m pytest tests/ -q
+
       - name: Build sdist & wheel
         run: |
           pip install -r requirements-dev.txt

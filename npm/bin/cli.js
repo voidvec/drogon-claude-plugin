@@ -25,6 +25,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const INSTALL_DIR = '.drogon-plugin'
 const LEGACY_STAMP = '.drogon-claude-plugin-installed.json'
 const STAMP = '.drogon-claude-plugin-v2.json'
+// 落地后必须可执行的钩子文件(copyAssets 统一 chmod;POSIX 专用问题,Windows 为 no-op)
+const HOOK_EXEC_FILES = [
+  'hooks/run-hook.cmd',
+  'hooks/session-start',
+  'hooks/post-tool-use',
+  'hooks/posttooluse.py',
+]
 const CLAUDE_MD_MARKER = '# Drogon 后端开发规则'
 const EXPECTED_HOOK_FILES = ['hooks.json', 'run-hook.cmd', 'session-start', 'post-tool-use', 'posttooluse.py']
 const EXPECTED_HOOK_EVENTS = 2
@@ -166,6 +173,13 @@ function copyAssets(srcRoot, targetRoot) {
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     fs.copyFileSync(path.join(srcRoot, rel), dest)
     count++
+  }
+  // 回归(P2):copyFileSync 不携带源 mode,Linux/macOS 上钩子脚本落地即丢
+  // 可执行位 → 宿主执行 hooks command 时 Permission denied、静默失效。
+  // Windows 上 chmod 的 x 位是 no-op,统一补 0o755。
+  for (const rel of HOOK_EXEC_FILES) {
+    const f = path.join(targetRoot, rel.split('/').join(path.sep))
+    if (fs.existsSync(f)) fs.chmodSync(f, 0o755)
   }
   return count
 }

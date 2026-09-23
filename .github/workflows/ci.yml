@@ -11,18 +11,27 @@ env:
 
 jobs:
   validate-plugin:
-    name: Validate plugin (${{ matrix.os }})
+    name: Validate plugin (${{ matrix.os }}, py${{ matrix.python }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.11']
+        include:
+          # requires-python >=3.9:钉住下界与上界(编码/typing 漂移在这一档暴露)
+          - os: ubuntu-latest
+            python: '3.9'
+          - os: ubuntu-latest
+            python: '3.13'
+          - os: windows-latest
+            python: '3.13'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: requirements-dev.txt
 

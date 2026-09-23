@@ -27,7 +27,7 @@
 | **Gemini CLI** | `gemini extensions install https://github.com/voidvec/drogon-claude-plugin` | 技能 + GEMINI.md 上下文 |
 | **Qoder** | `drogon-claude-plugin install`（落 `AGENTS.md`） | 规则 |
 | **CodeBuddy** | `drogon-claude-plugin install`（落 `CODEBUDDY.md`） | 规则 |
-| **Trae** | `drogon-claude-plugin install`（落 `.trae/rules/`） | 规则 |
+| **Trae** | `drogon-claude-plugin install`（落 `.trae/skills/` + `AGENTS.md`） | 技能 + 规则 |
 
 维护分层：**一级维护**（持续跟进规范变化）— Claude Code、ZCode、Codex、Cursor、VS Code + `.agents` 兜底；**尽力维护** — Gemini CLI、Qoder、CodeBuddy、Trae。
 
@@ -71,7 +71,7 @@ drogon-claude-plugin verify         # CLI 安装器（任意宿主皆可校验�
 
 | 命令 | 作用 |
 |------|------|
-| `drogon-claude-plugin install [--host LIST] [--force-agents]` | 按宿主落产物：Claude/ZCode 走 bundle，Cursor 落 `.cursor/skills`+规则，Codex/Gemini/Qoder/CodeBuddy 落指令文件，Trae 落 `.trae/rules`；`all` 遵循互斥规则（不重复落 `.agents/skills`） |
+| `drogon-claude-plugin install [--host LIST] [--force-agents]` | 按宿主落产物：Claude/ZCode 走 bundle，Cursor 落 `.cursor/skills`+规则，Codex/Gemini/Qoder/CodeBuddy 落指令文件，Trae 落 `.trae/skills` + `AGENTS.md`；`all` 遵循互斥规则（不重复落 `.agents/skills`） |
 | `drogon-claude-plugin scan [--format json] [--strict] [路径...]` | 无钩子宿主 / CI 的违规扫描（`--strict` 发现违规退出码 1）；路径限定在项目内 |
 | `drogon-claude-plugin hosts` | 列出支持的宿主与接入方式 |
 | `drogon-claude-plugin verify [--target DIR]` | 校验已安装结构并逐宿主报告状态 |

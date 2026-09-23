@@ -13,7 +13,7 @@ Codex / Cursor / VS Code Copilot / Gemini CLI / Qoder / CodeBuddy / Trae /
   gemini         → GEMINI.md(项目级;技能经 gemini extensions 安装本仓库)
   qoder          → AGENTS.md(Qoder 官方兼容)
   codebuddy      → CODEBUDDY.md(项目指令文件)
-  trae           → .trae/rules/drogon-plugin.mdc
+  trae           → .trae/skills/<skill>/ + AGENTS.md(Trae 官方兼容;不投 .mdc,见 R10)
 
 安全承诺:
   · 项目自有指令文件(AGENTS.md / GEMINI.md / CODEBUDDY.md)绝不覆盖:
@@ -99,7 +99,9 @@ HOSTS = {
     "gemini": {"kind": "instruction", "file": "GEMINI.md"},
     "qoder": {"kind": "instruction", "file": "AGENTS.md"},
     "codebuddy": {"kind": "instruction", "file": "CODEBUDDY.md"},
-    "trae": {"kind": "rulefile", "rule_file": ".trae/rules/drogon-plugin.mdc"},
+    # 回归(R10):Trae 官方规则是 .trae/rules/*.md,文档零处 .mdc —— 旧落点
+    # drogon-plugin.mdc 是宿主不读的 inert 文件。改走 skills + AGENTS.md 双通道。
+    "trae": {"kind": "skills+instruction", "skills_dir": ".trae/skills", "file": "AGENTS.md"},
 }
 
 # `all` 的互斥规则(评审 #7):claude/zcode/codex/gemini/cursor 已有技能分发通道,
@@ -113,7 +115,8 @@ _OUR_DIR_CANDIDATES = [
     ".cursor",
     ".agents/skills",
     ".agents",
-    ".trae/rules",
+    ".trae/skills",
+    ".trae/rules",  # 旧版 .mdc 落点(R10 已撤),空目录顺手清理
     ".trae",
 ]
 
@@ -384,7 +387,7 @@ _HOST_HINTS = {
     "gemini": f"gemini extensions install {_REPO_URL}(项目内 GEMINI.md 规则已即刻生效)",
     "qoder": "Qoder 打开本项目即生效(官方兼容 AGENTS.md)",
     "codebuddy": "CodeBuddy 打开本项目即读取 CODEBUDDY.md",
-    "trae": "Trae 打开本项目即生效(.trae/rules)",
+    "trae": "Trae 打开本项目即生效(.trae/skills + AGENTS.md;旧 .trae/rules/*.mdc 已撤,R10)",
 }
 
 
@@ -641,7 +644,22 @@ def cmd_verify(args) -> int:
 
 
 def cmd_upgrade(args) -> int:
-    args.force_agents = True
+    """升级到随包版本。
+
+    回归(R4):旧实现无条件 ``force_agents=True`` 且不带 host → cmd_install 按
+    ALL_HOSTS 重装。两个后果:①给用户只装过部分宿主的项目凭空落下其余八家产物;
+    ②把标记段强推进用户自有的 AGENTS.md/GEMINI.md/CODEBUDDY.md。
+    新语义:范围 = 安装戳里已安装的宿主(--host 可显式覆盖);marker 追加是
+    显式 opt-in(--force-agents),永不默认发生;无安装戳退化为全量安装。
+    """
+    if not getattr(args, "host", None):
+        try:
+            project = _project_dir(args)
+            stamped = [h for h in _load_stamp(project).get("hosts", []) if h in HOSTS]
+        except ValueError:
+            stamped = []
+        # _parse_hosts 对空串/None 走 ALL_HOSTS —— 无戳即无范围,保持旧行为
+        args.host = ",".join(sorted(set(stamped))) if stamped else None
     return cmd_install(args)
 
 
@@ -870,8 +888,9 @@ def cmd_uninstall(args) -> int:
         for pattern in (
             ".cursor/skills/drogon-*",
             ".agents/skills/drogon-*",
+            ".trae/skills/drogon-*",
             ".cursor/rules/drogon-plugin.mdc",
-            ".trae/rules/drogon-plugin.mdc",
+            ".trae/rules/drogon-plugin.mdc",  # 旧版落点(R10),无戳兜底时仍负责清扫
         ):
             for p in project.glob(pattern):
                 if p.is_dir():
@@ -1011,8 +1030,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--target")
     p.set_defaults(func=cmd_verify)
 
-    p = sub.add_parser("upgrade", help="升级到随包版本")
+    p = sub.add_parser("upgrade", help="升级到随包版本(默认范围 = 已安装宿主)")
     p.add_argument("--target")
+    p.add_argument("--host", help="只升级指定宿主(默认:安装戳中已安装的宿主)")
+    p.add_argument(
+        "--force-agents",
+        action="store_true",
+        help="用户已有 AGENTS.md/GEMINI.md/CODEBUDDY.md 时追加标记段(默认跳过不动)",
+    )
     p.set_defaults(func=cmd_upgrade)
 
     p = sub.add_parser(

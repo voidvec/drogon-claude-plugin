@@ -134,16 +134,19 @@ CSP_RULES: List[Rule] = [
 ]
 
 # Config files (config.json, config.yaml, config.yml) — JSON/YAML keys are case-sensitive
+# 回归(R6):此前模式只接受带双引号的 JSON 键,YAML 形态(`password: secret`)整体
+# 漏报。分支二用 `(?<![\w."])` 挡住 db_password 这类前后缀粘连,避免新误报。
 CONFIG_RULES: List[Rule] = [
-    Rule("CFG.001", "error", r'"password"\s*:',
+    Rule("CFG.001", "error", r'"password"\s*:|(?<![\w."])password\s*:',
          '"password" key found — drogon uses "passwd" for the database password in config. '
          'Change to "passwd". (See ConfigLoader.cc)',
          "drogon-gen-db-config"),
-    Rule("CFG.002", "error", r'"username"\s*:',
+    Rule("CFG.002", "error", r'"username"\s*:|(?<![\w."])username\s*:',
          '"username" key found — drogon uses "user" for the database user in config. '
          'Change to "user". (See ConfigLoader.cc)',
          "drogon-gen-db-config"),
-    Rule("CFG.003", "error", r'"ssl"\s*:\s*"[^"]*"',
+    Rule("CFG.003", "error",
+         r'"ssl"\s*:\s*"[^"]*"|(?<![\w."])ssl\s*:\s*["\'][^"\']*["\']',
          '"ssl" must be a boolean (true/false), not a string.',
          "drogon-setup-config"),
 ]
@@ -250,23 +253,75 @@ violations_map_for = rules_for
 
 
 def extract_new_text(tool_input: dict) -> Optional[str]:
-    """Extract the new/changed text from tool_input depending on tool type."""
+    """Extract the new/changed text from tool_input depending on tool type.
+
+    回归(R5):畸形 payload(tool_input 非 dict 成员 / edits 是字符串数组)
+    曾让本函数抛 AttributeError → traceback 逃逸,违反钩子的 never-blocks 契约。
+    """
     # Write tool: 'content' field has the full new file content
     content = tool_input.get('content')
-    if content is not None:
+    if isinstance(content, str) and content:
         return content
 
     # Edit tool: 'new_string' field
     new_string = tool_input.get('new_string')
-    if new_string is not None:
+    if isinstance(new_string, str) and new_string:
         return new_string
 
-    # MultiEdit tool: concatenate edits
+    # MultiEdit tool: concatenate edits (non-dict entries are skipped, not fatal)
     edits = tool_input.get('edits')
-    if edits:
-        return ' '.join(e.get('new_string', '') for e in edits)
+    if isinstance(edits, list):
+        parts = [e.get('new_string', '') for e in edits
+                 if isinstance(e, dict) and isinstance(e.get('new_string'), str)]
+        joined = ' '.join(p for p in parts if p)
+        if joined:
+            return joined
 
     return None
+
+
+# Codex 的 canonical 工具名是 apply_patch(codex-rs hook_names.rs;Write/Edit
+# 只是 matcher 别名),payload 为 {"command": <patch 文本>} 且无 file_path。
+# 回归(R3):按名白名单 + file_path 取值让扫描器在 Codex 上永远空转。
+_PATCH_FILE_RE = re.compile(r"^\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$", re.M)
+
+
+def apply_patch_sections(tool_input: dict) -> "List[tuple]":
+    """Parse a Codex apply_patch payload into ``[(file_path, added_text), ...]``.
+
+    Only '+' added lines are scanned — context/removed lines are pre-existing
+    code the model did not write. Returns [] for anything that isn't a patch.
+    """
+    command = tool_input.get('command') if isinstance(tool_input, dict) else None
+    if not isinstance(command, str) or "*** Begin Patch" not in command:
+        return []
+    sections: "List[tuple]" = []
+    current: "Optional[list]" = None
+    for line in command.splitlines():
+        m = _PATCH_FILE_RE.match(line)
+        if m:
+            current = [m.group(1), []]
+            sections.append(current)
+            continue
+        if line.startswith("***"):
+            current = None
+            continue
+        if current is not None and line.startswith("+"):
+            current[1].append(line[1:])
+    return [(path, "\n".join(lines)) for path, lines in sections if lines]
+
+
+# 黑名单而非白名单(R3):未知工具名(各宿主编辑工具命名不一:search_replace 等)
+# 只要携带 file_path/content 或 apply_patch 补丁就应被扫描;明确非文件类工具秒退。
+NON_FILE_TOOLS = frozenset({
+    # Claude Code
+    "Bash", "Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch",
+    "Agent", "Task", "TodoWrite", "NotebookRead", "KillShell", "Skill",
+    "SlashCommand", "AskUserQuestion",
+    # Codex / 小写别名(同为非文件编辑类)
+    "read_file", "list_dir", "web_search", "search_files", "update_plan",
+    "view_image", "run_command",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -351,12 +406,54 @@ def scan_paths(paths, fmt: str = "human", strict: bool = False) -> int:
 
 
 def _utf8_stdio():
-    # Windows 下 stdout 为管道时默认 cp1252,违规消息含中文/破折号会抛 UnicodeEncodeError
-    for s in (sys.stdout, sys.stderr):
+    # 回归(P1):钩子负载是 UTF-8 JSON,而 Windows 下重定向的 stdin 默认走
+    # locale 编码(cp1252/cp936);strict 解码遇非法字节直接 UnicodeDecodeError
+    # → traceback + rc=1。stdin 以 replace 读取:非法字节变 U+FFFD,扫描照常。
+    # stdout/stderr 同因:违规消息含中文/破折号,strict 编码会抛 UnicodeEncodeError。
+    for s in (sys.stdin, sys.stdout, sys.stderr):
         try:
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             pass
+
+
+def _hook_report(input_data: dict) -> dict:
+    """Hook protocol body: payload -> response dict ({} = silent no-op)."""
+    tool_name = input_data.get('tool_name', '')
+    if tool_name in NON_FILE_TOOLS:
+        return {}
+
+    tool_input = input_data.get('tool_input')
+    if not isinstance(tool_input, dict):
+        # 回归(R5):tool_input 为字符串/None 等畸形值时优雅降级,不得 AttributeError
+        return {}
+
+    # Codex apply_patch:补丁内可含多个文件,逐文件解析新增行
+    sections = apply_patch_sections(tool_input)
+    if not sections:
+        file_path = tool_input.get('file_path', '')
+        if not isinstance(file_path, str) or not file_path:
+            return {}
+        new_text = extract_new_text(tool_input)
+        if not new_text:
+            return {}
+        sections = [(file_path, new_text)]
+
+    blocks = []
+    for file_path, new_text in sections:
+        category = file_category(file_path)
+        if category is None:
+            continue
+        hits = scan_text(new_text, rules_for(category))
+        if not hits:
+            continue
+        header = f"🔍 **Drogon API violations detected in `{os.path.basename(file_path)}`**"
+        items = '\n'.join(f'- [{r.rule_id}] {r.message}' for r in hits)
+        blocks.append(f"{header}\n\n{items}")
+
+    if not blocks:
+        return {}
+    return {"systemMessage": "\n\n".join(blocks)}
 
 
 def main():
@@ -386,45 +483,21 @@ def main():
 
     try:
         input_data = json.load(sys.stdin)
-    except (json.JSONDecodeError, IOError):
+    except (ValueError, IOError):
         print(json.dumps({}))
-        sys.exit(0)
-
-    tool_name = input_data.get('tool_name', '')
-    if tool_name not in ('Write', 'Edit', 'MultiEdit'):
-        # Only scan file-mutating tools
+        return 0
+    if not isinstance(input_data, dict):
         print(json.dumps({}))
-        sys.exit(0)
+        return 0
 
-    tool_input = input_data.get('tool_input', {})
-    file_path = tool_input.get('file_path', '')
-    if not file_path:
-        print(json.dumps({}))
-        sys.exit(0)
-
-    category = file_category(file_path)
-    if category is None:
-        print(json.dumps({}))
-        sys.exit(0)
-
-    new_text = extract_new_text(tool_input)
-    if not new_text:
-        print(json.dumps({}))
-        sys.exit(0)
-
-    hits = scan_text(new_text, rules_for(category))
-    if not hits:
-        print(json.dumps({}))
-        sys.exit(0)
-
-    # Build warning message
-    header = f"🔍 **Drogon API violations detected in `{os.path.basename(file_path)}`**"
-    items = '\n'.join(f'- [{r.rule_id}] {r.message}' for r in hits)
-    message = f"{header}\n\n{items}"
-
-    output = {"systemMessage": message}
+    # never-blocks 契约:钩子分支的任何未预期异常都必须降级为静默 no-op,
+    # 而不是 traceback + 非零退出(回归 R5 的纵深兜底)。
+    try:
+        output = _hook_report(input_data)
+    except Exception:
+        output = {}
     print(json.dumps(output))
-    sys.exit(0)
+    return 0
 
 
 if __name__ == '__main__':

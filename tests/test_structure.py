@@ -132,6 +132,34 @@ def test_claude_md_routes_every_skill():
         assert name in text, f"CLAUDE.md routing table missing {name}"
 
 
+# 回归(R7):技能模板是模型逐字照抄的样本,内容错误会被直接放大成用户代码
+# 崩溃/行为错误。两条都已对照 drogon v1.9.13 / trantor 头文件核实:
+#   - trantor EventLoop.h:getEventLoopOfCurrentThread() 在无循环线程返回 nullptr
+#   - drogon HttpAppFramework.h:forward 系列第三参是 timeout(double),端口写进 hostString
+GUIDE_FORBIDDEN = (
+    (re.compile(r"getEventLoopOfCurrentThread\s*\(\s*\)\s*->"),
+     "非事件循环线程返回 nullptr,直接 -> 解引用必崩;应在进入线程前捕获 req->getLoop() 再 queueInLoop"),
+    (re.compile(r"forwardCoro\s*\(\s*[^)]*?,\s*\"[^\"]+\"\s*,\s*[\d.]+"),
+     "forwardCoro 第三参是 timeout(double) 非端口;目标端口须写进 host 字符串(\"host:port\")"),
+    (re.compile(r"forwardCoro\s*\(\s*[^)]*\bport\b\s*\)"),
+     "forwardCoro 第三参是 timeout 非端口;签名应说明 hostString 含端口"),
+)
+
+
+def test_skill_guides_free_of_known_bad_api_patterns():
+    offenders = []
+    for name in _skills():
+        for md in (REPO_ROOT / "skills" / name).rglob("*.md"):
+            text = md.read_text(encoding="utf-8", errors="ignore")
+            for pat, why in GUIDE_FORBIDDEN:
+                for m in pat.finditer(text):
+                    line = text[: m.start()].count("\n") + 1
+                    offenders.append(
+                        f"{md.relative_to(REPO_ROOT)}:{line}: “{m.group(0)[:72]}” — {why}"
+                    )
+    assert not offenders, "技能文档含已知错误 API 用法:\n" + "\n".join(offenders)
+
+
 def test_hook_scripts_present():
     for name in EXPECTED_HOOK_FILES:
         p = REPO_ROOT / "hooks" / name
@@ -235,6 +263,30 @@ def test_marketplace_entry_has_catalog_fields():
     assert entry["version"] == json.loads(
         (REPO_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     )["version"]
+
+
+def test_local_marketplace_sources_start_with_dot_slash():
+    """回归(R1):官方文档硬约束 —— "Local plugin sources must start with ./"。
+
+    `"."` 会让 `claude plugin marketplace update/install` 解析失败;两个
+    marketplace(Claude 系字符串 source、Codex 系 {source:local,path})都盖进去。
+    """
+    claude_mp = json.loads(
+        (REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    for e in claude_mp["plugins"]:
+        assert isinstance(e["source"], str) and e["source"].startswith("./"), (
+            f"claude marketplace: {e['name']} source={e['source']!r} 必须以 ./ 开头"
+        )
+    codex_mp = json.loads(
+        (REPO_ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+    )
+    for e in codex_mp["plugins"]:
+        src = e["source"]
+        if isinstance(src, dict) and src.get("source") == "local":
+            assert src["path"].startswith("./"), (
+                f"codex marketplace: {e['name']} source.path={src['path']!r} 必须以 ./ 开头"
+            )
 
 
 if __name__ == "__main__":
