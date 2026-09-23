@@ -4,5 +4,9 @@
 # 上游任何大版本变更都会直接改变 CI 行为(供应链风险,也是不可复现构建的来源)。
 # 升级方式:定期由依赖机器人(见 docs/PROFESSIONALIZATION-REVIEW.md §8 建议)提 PR,
 # 人工复核后更新本文件,而不是让 CI 随机漂移。
-pytest==9.1.1
+# pytest 9.x 要求 Python>=3.10,而本仓库 requires-python >=3.9(CI 矩阵含 3.9,
+# 回归来源:py3.9 作业装不上 pytest==9.1.1)→ 按解释器版本双轨锁定:
+# 8.4.x 是支持 3.9 的末代系列。
+pytest==9.1.1; python_version >= "3.10"
+pytest==8.4.2; python_version < "3.10"
 build==1.2.2
