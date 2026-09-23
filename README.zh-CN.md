@@ -176,7 +176,7 @@ AI: [依据 CLAUDE.md 异步纪律] 这个 handler 的提前返回路径没有�
 ├── .github/workflows/
 │   ├── ci.yml              # 三平台矩阵：结构 + 钩子 + CLI 冒烟测试
 │   └── publish.yml         # tag 触发 → PyPI + npm + GitHub Release
-├── scripts/                # 构建辅助（资产同步 + 冒烟测试）
+├── scripts/                # 宿主产物生成器、资产同步、一致性门禁、冒烟测试
 ├── hooks/
 │   ├── hooks.json          # SessionStart + PostToolUse 注册
 │   ├── run-hook.cmd        # 跨平台多语言启动器
@@ -184,9 +184,13 @@ AI: [依据 CLAUDE.md 异步纪律] 这个 handler 的提前返回路径没有�
 │   ├── post-tool-use       # 探测 Python 3，缺失时优雅降级
 │   └── posttooluse.py      # 违规扫描器
 ├── skills/                 # 22 个代码生成技能
-├── tests/                  # pytest：扫描器、结构校验、钩子端到端
+├── docs/
+│   ├── SKILL-AUTHORING.md  # 技能作者手册（字段规范、结构契约、同步清单）
+│   └── PROFESSIONALIZATION-REVIEW.md  # 专业化体检报告与改进清单
+├── tests/                  # pytest：扫描器、结构校验、规则正反例、钩子端到端
 ├── src/drogon_plugin/      # PyPI 包（CLI 安装器）
 ├── npm/                    # npm 包（CLI 安装器）
+├── requirements-dev.txt    # 固定版本的开发/CI 依赖（运行时依赖为零）
 ├── CLAUDE.md               # 规则层
 └── CHANGELOG.md
 ```

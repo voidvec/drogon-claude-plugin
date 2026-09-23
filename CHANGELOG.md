@@ -6,8 +6,63 @@
 
 ## [Unreleased]
 
+仓库专业化改造。诊断报告见 `docs/PROFESSIONALIZATION-REVIEW.md`,技能作者手册见 `docs/SKILL-AUTHORING.md`。
+
+### Fixed — 第二轮评审整改（规范符合性 / 功能正确性 / 多宿主兼容性）
+
+评审记录与依据见 `docs/SPEC-CORRECTNESS-COMPAT-REVIEW.md`。
+
+- **按宿主卸载失效**：`_uninstall_hosts` 由 if-链改为 **kind→动作显式映射**并补齐 `bundle` 分支 —— `uninstall --host claude|zcode` 从"静默空操作"变为真正删除 `.drogon-plugin/`；bundle 按组处理（`_expand_bundle_group`），消除安装戳残留。
+- **按宿主卸载误删共享指令文件**：引入引用计数，仅当**无其它已安装宿主**仍引用时才整份删除 `AGENTS.md`（此前 `install --host codex` 后 `uninstall --host qoder` 会把 codex 仍在用的文件整份删掉）。
+- **共享技能目录缺保护**（对抗性复核发现）：`copilot` 与 `agents` 共用 `.agents/skills`，卸载其一不再清空另一个仍在用的技能目录。
+- **文件名子串误判**：`file_category` 移除裸子串判定，改为路径段 + 文件名精确匹配（`latest.cc` / `contest.cc` 不再被判为测试文件、不再套用 TEST 规则集产生误报）；同时保留 CamelCase 识别（`MyTestSuite.cc` / `FooTestHelper.cc`）。
+- **标记段半损坏 / 记录过期**：进入替换分支的判据改为**成对标记段**（不再仅看 begin 是否存在），新增孤立标记清理；剥离标记段后同步清掉安装记录，不再残留安装戳。
+- **`rmtree` 未判目录**：删技能目录前先判 `is_dir()`（同名文件不再抛错）。
+- **SessionStart 漏 `resume`**：matcher 补为 `startup|resume|clear|compact`（会话恢复时规则现在会注入）；`hooks.json` 增加规范允许的顶层 `description`。
+- **规则注入的 JSON 转义不全**：`session-start` 用 `tr` 剔除 C0 控制字符（保留 `\t`/`\n`/`\r`），并对 `tr` 失败显式降级为 `exit 0`（不违反 SessionStart 必须成功退出的约定）。
+- **`--scan --format` 缺取值崩溃**：改为用法提示 + 退出码 2，并校验取值合法性。
+- **`--format json` 错误路径无 JSON**：新增 `error` 字段的错误输出（纯增量，`findings`/`total` 语义不变），CLI 与独立扫描器同步实现。
+- **npm 回退整仓复制**：`findAssets()` 回退源码树时只复制受管条目（`MANAGED_ENTRIES`），不再把 `.git` / `node_modules` / `tests` 拖进用户项目，并显式告警。
+- **无扩展名钩子脚本未固定 LF**（对抗性复核发现）：`hooks/session-start` 与 `hooks/post-tool-use` 不被 `*.sh` / `*.py` 规则覆盖（`git ls-files --eol` 显示 `attr/` 为空），Windows 在 `core.autocrlf=true`（Git for Windows 默认）下克隆会得到 CRLF，bash 会把 `\r` 当成命令的一部分 → **会话规则注入与编辑后扫描静默失效**。已在 `.gitattributes` 显式声明 `eol=lf`，并加门禁与磁盘字节守护。
+
+### Added — 第二轮
+
+- 一致性门禁 **7 → 12 项**：新增「SessionStart matcher 覆盖 resume」「无扩展名钩子脚本固定 LF」「宿主类型均有卸载动作」「规则文件无控制字符」「npm 受管条目与同步器等价」。
+- `docs/SPEC-CORRECTNESS-COMPAT-REVIEW.md`：三路评审记录，含**被官方文档反证、因此不予整改的推测项**（Codex `interface` 必填字段、`hooks` 字段被 validator 拒绝等）与**需真机核实清单**。
+- 回归测试净增 24 例：10 个宿主逐宿主"装-卸零残留"参数化、共享指令文件保护、共享技能目录保护、标记段半损坏修复、marker 路径零残留、`file_category` 子串反例与 CamelCase 正例、`--format` 缺值/非法值、JSON 错误路径、SessionStart matcher、`session-start` 控制字符、钩子脚本 LF 磁盘守护与 `.gitattributes` 声明守护。
+
+### Added
+
+- `scripts/plugin-capabilities.json`:两个 CLI 的**能力契约事实源**(pypi/npm 命令集合 + npm 已知缺口声明),能力差异从"CHANGELOG 散文"变为机器可校验的事实。
+- `scripts/check-consistency.py`:**跨产物一致性门禁**(7 项)——README 计数与技能覆盖、双语 README 对齐、双资产同步器常量等价、CLI 能力契约、无硬编码技能数、钩子规则 ID 唯一且非空。CI 与 pytest 共用同一实现(`run_checks()`)。
+- `requirements-dev.txt`:固定版本的开发/CI 依赖。此前 CI 用裸 `pip install pytest` / `pip install build`,上游大版本变更会直接改变 CI 行为。
+- `docs/SKILL-AUTHORING.md`:技能作者手册(字段白名单、触发词写法、code-guide 结构契约、四处双向同步清单、钩子规则新增流程、`--scan` 契约)。
+- `docs/PROFESSIONALIZATION-REVIEW.md`:专业化体检报告(量化基线 + A/B/C/D 差距清单 + 加权优先级 + 验收口径 + 工具链选型建议,仅建议不引入)。
+- **钩子规则级正反例契约**:`tests/test_posttooluse.py` 要求**每条规则**都有 1 正例 + 1 反例(此前 8 条规则无反例 = 误报无守护)。
+- **`verify` 资产漂移检测**:安装时记录受管文件 SHA-256 清单,`verify` 报告"被改动 / 缺失 / 多余";旧版安装(无清单)优雅跳过,向后兼容。PyPI 与 npm 两侧均已实现并有测试。
+- npm CLI `--capabilities` 机器可读能力声明;`test_npm_cli_install_verify_uninstall` 端到端回归测试(补上"只跑 Python 侧断言"的盲区)。
+
+### Changed
+
+- **技能数量收敛为单一事实源**:一律由 `skills/` 目录**实枚举**派生,消除 7 处常量 + 34 处文案硬编码(CLI×2、生成器、冒烟脚本×2、测试、CI、README×4)。`AGENTS.md` / `GEMINI.md` / Codex 清单中的数量改由生成器写入。
+- **22 个 `SKILL.md` frontmatter 合规化**:移除**不被 Agent Skills 规范允许**的 `version` 字段(规范路径下是硬失败而非忽略),改用白名单内的 `license: MIT`;`description` 统一为"需要……时，…"触发式写法。此举同时根除 `0.1.0`×11 / `0.2.0`×11 的版本漂移(该字段无任何测试引用,属纯负债)。
+- **22 个 `references/code-guide.md` 章节统一**:「禁止模式清单」标题归一(16 处重命名 + 6 处补写内容),并新增结构契约(≥70 行、必须含该章节与模板块)。此前 7 个 `SKILL.md` 声明含"禁止模式清单"而实际没有该章节。
+- **钩子规则库结构化**:裸元组 → `Rule(rule_id, severity, pattern, message, guide, flags)`;`--scan` 的 JSON 输出为**向后兼容超集**(`file` / `violations` / `total` 的名字与语义不变,仅新增 `rules[]`);人读输出带规则编号。
+- **`CPP.009` 精度提升**:Advice 注册检测收窄为"handler 体内注册"(形参含 `HttpRequestPtr`/`HttpResponsePtr` 的函数体),`main()` 中的合法注册不再误报;代价是类型别名/超长形参列表等场景漏报——属**有意的精度优先取舍**,已在手册中写明。
+- **CSP 规则补齐 `re.IGNORECASE`**:让"注释已声明但代码未生效"的大小写不敏感匹配真正生效,并补大小写变体反例。
+- **`CONTRIBUTING.md` 重写**:修正过期的"三处版本号"清单(实际由 `VERSION` + 生成器统一维护 7 处),补技能作者手册入口与"与 CI 等价"的本地验证命令。
+- CI:`setup-python` 开启 `cache: pip` 并改用 `pip install -r requirements-dev.txt`;新增跨产物门禁步骤与 npm 能力声明步骤;技能数断言由字面量 `22` 改为下限哨兵(真实数量由目录实枚举)。
+- 测试:结构测试新增 frontmatter 白名单、触发式描述、code-guide 章节契约断言;新增能力契约与漂移检测断言;`test_hosts.py` 移除死代码占位与重复调用;`test_hooks.py` 补 `pytest.main` 入口(此前直接运行会静默"通过")。
+
 ### Fixed
 
+- **npm CLI `install` 抛 `ReferenceError`**(本轮引入并已修复):移除 `EXPECTED_SKILLS` 常量后日志行仍在引用它,导致 `install` 必然失败。已改为 `bundledSkillCount()`,并在一致性门禁中补入**正向断言**(要求两个 CLI 必须存在实枚举入口),堵住"只查字面量、反而放过删常量"的反向盲区。
+- `src/drogon_plugin/cli.py`:`_EXPECTED_HOOK_EVENTS` 由死常量变为实际用于校验 `hooks/hooks.json` 事件数;`verify` 补上 `CLAUDE.md` 存在性与 hooks 事件数校验(此前仅 npm 侧校验)。
+- `tests/test_structure.py`:code-guide 的 `>= 40` 行阈值形同虚设(实际最薄 78 行)→ 提高阈值并与章节契约配合生效。
+- `tests/test_posttooluse.py`:docstring 声称"每条模式都有正反例"与实现不符 → 现由规则级契约真正强制。
+- `scripts/sync-assets.mjs`:移除 `typeof ok === 'string'` 冗余分支(`check()` 只返回 boolean)。
+- `scripts/check-consistency.py`:双语 README 对齐检查改用精确的技能表格行匹配(避免宿主表格含 `drogon-claude-plugin` 造成误计),并新增"主 README 必须给出完整技能表"断言以防表格被整体删除后的假绿。
+- **`__pycache__` 污染随包资产**:`cmd_scan` 用 importlib 动态加载随包扫描器时会写入字节码缓存,把 `__pycache__` 留在 `drogon_plugin_assets/hooks/` 里(`verify` 报"未受管文件"、`sync-assets --check` 报不一致)。已在 `cmd_scan` 与 `check-consistency.py` 中设 `sys.dont_write_bytecode = True` 从源头消除——该问题正是本轮新增的"目标侧不得混入中间产物"检查发现的。
 - ci.yml:validate-plugin 在 pytest 前先运行 `sync-assets.py` 生成 `drogon_plugin_assets/`(该目录 gitignore,test_hosts.py 依赖其存在;此前该测试从未在 CI 真正执行过,一直被上游 Unicode 崩溃掩盖)。
 
 ## [0.3.1] - 2026-09-21
