@@ -25,6 +25,7 @@
 - **Trae 规则落点证伪**（R10）：官方规则为 `.trae/rules/*.md`、文档零处 `.mdc`，旧产物是宿主不读的 inert 文件；Trae 改走 `.trae/skills` + `AGENTS.md` 双通道，旧 `.mdc` 进无戳兜底清扫清单。
 - **npm 分发丢可执行位**（P2）：`copyFileSync` 不携带源 mode，Linux/macOS 落地后钩子脚本无 x 位 → 钩子静默失效；`copyAssets` 后对 4 个钩子文件显式 `chmodSync(0o755)`。
 - **py3.9 矩阵装不上依赖**（CI 回归）：`pytest==9.1.1` 要求 Python≥3.10，ubuntu py3.9 作业 `No matching distribution found`。`requirements-dev.txt` 改为环境标记双轨锁定：`pytest==9.1.1; python_version >= "3.10"` / `pytest==8.4.2; python_version < "3.10"`（8.4.x 是支持 3.9 的末代系列；测试套件仅用 mark/skip/main 等长期 API，双轨行为一致）。
+- **Publish 预门禁用未生成的资产**（v0.4.0 首发失败）：门禁步骤直接对 gitignored 的打包资产目录跑 `sync-assets.py --check`，全新检出下必报"资产目录缺失"。现先经两个同步器生成再 `--check` 断言（顺序与 ci.yml validate-plugin 一致）；失败发生在 PyPI/npm 发布之前，无任何产物上线。
 
 ### Added — 第三轮
 
