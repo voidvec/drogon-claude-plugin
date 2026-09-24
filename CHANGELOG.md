@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-24
+
 仓库专业化改造。诊断报告见 `docs/PROFESSIONALIZATION-REVIEW.md`,技能作者手册见 `docs/SKILL-AUTHORING.md`。
 
 ### Fixed — 第三轮评审整改（插件规范性 / 宿主兼容性 / 平台兼容性 / 功能正确性）
