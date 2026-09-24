@@ -262,6 +262,76 @@ def test_npm_cli_install_verify_uninstall(tmp_path):
     assert (p / "CLAUDE.md").read_text(encoding="utf-8") == "# 我的项目\n"
 
 
+@pytest.mark.skipif(_node() is None, reason="node not available")
+def test_npm_uninstall_removes_pypi_v3_stamp(tmp_path):
+    """回归 L1:PyPI CLI 装的 v3 安装戳,npm uninstall 须一并清除,不得永久残留。
+
+    两个 CLI 共用 `.drogon-plugin/`,但 v3 戳 `.drogon-plugin-install.json` 落在
+    项目根、由 PyPI CLI 独占写入;此前 npm uninstall 只删目录、不识别 v3 戳。
+    """
+    import subprocess
+
+    p = tmp_path / "interop"
+    p.mkdir()
+    # 用 PyPI CLI 装 bundle 宿主(claude):产生 .drogon-plugin/ 与根目录 v3 戳
+    assert _run_cli("install", "--target", str(p), "--host", "claude") == 0
+    v3 = p / ".drogon-plugin-install.json"
+    assert (p / ".drogon-plugin").is_dir()
+    assert v3.is_file(), "前提:PyPI 安装应写 v3 戳"
+
+    r = subprocess.run(
+        [_node(), str(REPO_ROOT / "npm" / "bin" / "cli.js"), "uninstall", "--target", str(p)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not (p / ".drogon-plugin").exists()
+    assert not v3.exists(), "L1 复发:npm uninstall 未清除 PyPI 写的 v3 安装戳"
+    assert sorted(x.name for x in p.iterdir()) == [], f"互操作卸载后残留 {sorted(x.name for x in p.iterdir())}"
+
+
+@pytest.mark.skipif(_node() is None, reason="node not available")
+def test_npm_target_missing_value_errors_not_silent_cwd(tmp_path):
+    """回归 L2:npm `--target` 缺值应报错退出(与 py argparse 对齐),不得静默按 cwd 执行。"""
+    import subprocess
+
+    cli_js = str(REPO_ROOT / "npm" / "bin" / "cli.js")
+    r = subprocess.run(
+        [_node(), cli_js, "verify", "--target"],
+        capture_output=True, text=True, encoding="utf-8", cwd=str(tmp_path),
+    )
+    assert r.returncode == 2, (
+        f"L2 复发:--target 缺值应退出码 2(用法错误),实得 {r.returncode}\n{r.stdout}{r.stderr}"
+    )
+    assert "target" in (r.stdout + r.stderr).lower(), "缺值应给出指向 --target 的用法提示"
+
+
+@pytest.mark.skipif(_node() is None, reason="node not available")
+def test_npm_uninstall_keeps_mixed_host_v3_stamp(tmp_path):
+    """L1 正向对照:混合宿主(含 bundle 之外)的 v3 戳不得被 npm uninstall 删除。
+
+    根指令文件由各宿主安装器各自管理;npm 只清纯 bundle 安装,
+    混合安装必须保留记录并提示用 PyPI CLI 收尾,否则会删掉别人依赖的账本。
+    """
+    import json
+    import subprocess
+
+    p = tmp_path / "mixed"
+    p.mkdir()
+    assert _run_cli("install", "--target", str(p), "--host", "claude", "--host", "agents") == 0
+    v3 = p / ".drogon-plugin-install.json"
+    assert "agents" in json.loads(v3.read_text(encoding="utf-8"))["hosts"]
+
+    r = subprocess.run(
+        [_node(), str(REPO_ROOT / "npm" / "bin" / "cli.js"), "uninstall", "--target", str(p)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not (p / ".drogon-plugin").exists()
+    assert v3.is_file(), "混合宿主戳被误删:npm 只应清除纯 bundle(claude/zcode)安装"
+    assert (p / "AGENTS.md").exists(), "agents 宿主的根指令文件应原样保留"
+    assert "drogon-claude-plugin uninstall" in (r.stdout + r.stderr), "应提示用 PyPI CLI 收尾"
+
+
 # ---------------------------------------------------------------------------
 # 按宿主卸载的对称性与共享资源保护
 # ---------------------------------------------------------------------------

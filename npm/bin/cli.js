@@ -25,6 +25,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const INSTALL_DIR = '.drogon-plugin'
 const LEGACY_STAMP = '.drogon-claude-plugin-installed.json'
 const STAMP = '.drogon-claude-plugin-v2.json'
+// PyPI CLI 写的项目根 v3 安装戳(互操作卸载时需识别清除,见 cmdUninstall)
+const PY_V3_STAMP = '.drogon-plugin-install.json'
 // 落地后必须可执行的钩子文件(copyAssets 统一 chmod;POSIX 专用问题,Windows 为 no-op)
 const HOOK_EXEC_FILES = [
   'hooks/run-hook.cmd',
@@ -451,6 +453,29 @@ function cmdUninstall(args) {
   const legacy = removeLegacyLayout(project)
   removed.push(...legacy.removed)
 
+  // 回归(L1):PyPI CLI 在项目根写 v3 戳;npm uninstall 若不识别则永久残留。
+  // hosts ⊆ {claude,zcode}(纯 bundle 安装)→ 一并清除;
+  // 混合宿主/戳损坏 → 保留记录并提示用 PyPI CLI 收尾(它才管理根指令文件)。
+  const v3 = path.join(project, PY_V3_STAMP)
+  if (fs.existsSync(v3)) {
+    let hosts = null
+    try {
+      const data = JSON.parse(fs.readFileSync(v3, 'utf-8'))
+      if (Array.isArray(data.hosts)) hosts = data.hosts
+    } catch {
+      /* 损坏戳按混合处理,不盲目删除 */
+    }
+    const pureBundle = hosts !== null && hosts.length > 0 &&
+      hosts.every((h) => h === 'claude' || h === 'zcode')
+    if (pureBundle) {
+      fs.rmSync(v3, { force: true })
+      removed.push(PY_V3_STAMP)
+    } else {
+      console.warn(`⚠️  ${PY_V3_STAMP} 记录的宿主为 ${JSON.stringify(hosts)}(混合或不可读),已保留;`)
+      console.warn('    请用 pipx 安装的 drogon-claude-plugin uninstall 完成其余宿主的卸载。')
+    }
+  }
+
   if (removed.length) {
     console.log(`🗑  已从 ${project} 移除: ${removed.join(', ')}`)
     for (const s of legacy.skipped) console.log(`   ⚠️  跳过 ${s}`)
@@ -512,8 +537,16 @@ function main() {
   const args = { command }
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i]
-    if (a === '--target') args.target = argv[++i]
-    else {
+    if (a === '--target') {
+      // 回归(L2):缺值或取值像选项时必须退出码 2 报用法错误。
+      // 此前 `argv[++i]` 拿到 undefined → resolveProjectDir 静默回退 cwd,typo 即操作错目录。
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) {
+        console.error(`缺少 --target 取值:用法为 --target DIR`)
+        return 2
+      }
+      args.target = v
+    } else {
       console.error(`未知参数: ${a}`)
       return 2
     }
