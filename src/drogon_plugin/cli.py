@@ -155,10 +155,15 @@ def _bundled_skill_count() -> int:
 
 
 def _skills_ok(skills_dir: Path) -> bool:
-    """技能目录是否与随包资产一致。资产不可用时退化为"非空"检查。"""
-    n = _skill_count_of(skills_dir)
+    """技能目录是否与随包资产一致。
+
+    回归(M4′):此前"随包枚举为 0 时非空即过"的降级让残缺包在 verify 里
+    静默绿灯 —— expected==0 本身就是包残缺,必须判失败。
+    """
     expected = _bundled_skill_count()
-    return n == expected if expected else n > 0
+    if not expected:
+        return False
+    return _skill_count_of(skills_dir) == expected
 
 
 def _parse_hosts(spec: "str | None") -> list:
@@ -399,6 +404,39 @@ def _print_hints(hosts: list) -> None:
             print(f"     · {h}: {hint}")
 
 
+def _rollback_install(
+    project: Path, written: list, instruction_files: dict, bundle_touched: bool, err: Exception
+) -> None:
+    """回滚一次失败的 install(回归 L5)。
+
+    只清**本次**写入:`written` 里的技能目录/规则文件、我们建的 full 指令文件、
+    半成品 bundle。用户自有文件不整删 —— 若本次以 marker 段编辑过已有指令文件,
+    剥回的只是我们的标记段(与 uninstall 同一条安全路径)。
+    """
+    for rel in written:
+        p = project / rel
+        try:
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            elif p.exists():
+                p.unlink(missing_ok=True)
+        except OSError:
+            pass
+    if bundle_touched:
+        shutil.rmtree(project / _INSTALL_DIR, ignore_errors=True)
+    for name, action in instruction_files.items():
+        path = project / name
+        try:
+            if action == "full":
+                path.unlink(missing_ok=True)
+            elif action == "marker":
+                _strip_marker_section(project, name)
+        except OSError:
+            pass
+    _cleanup_empty_dirs(project)
+    print(f"❌ 安装中途失败,已回滚本次写入:{err}", file=sys.stderr)
+
+
 # ---------------------------------------------------------------------------
 # install
 # ---------------------------------------------------------------------------
@@ -434,76 +472,84 @@ def cmd_install(args) -> int:
     )
 
     installed_hosts = []
-    for host in hosts:
-        conf = HOSTS[host]
-        kind = conf["kind"]
+    bundle_touched = False
+    try:
+        for host in hosts:
+            conf = HOSTS[host]
+            kind = conf["kind"]
 
-        if kind == "bundle":
-            root = project / _INSTALL_DIR
-            if root.exists():
-                shutil.rmtree(root)
-            count = _copy_assets(src_root, root)
-            (root / _STAMP_V2).write_text(
-                json.dumps(
-                    {
-                        "source": "pypi:drogon-claude-plugin",
-                        "cli_version": _version(),
-                        "plugin_version": _plugin_version(root) or PLUGIN_VERSION,
-                        "files": count,
-                        # 受管文件摘要:verify 据此检测资产被改动/缺失/多余(C3)
-                        "hashes": _file_hashes(root, skip={_STAMP_V2}),
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            installed_hosts.extend(["claude", "zcode"])
-            continue
-
-        if kind.startswith("skills"):
-            skills_src = src_root / "skills"
-            dest_base = project / conf["skills_dir"]
-            n = 0
-            for d in sorted(skills_src.iterdir()):
-                if not d.is_dir():
-                    continue
-                dest = dest_base / d.name
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.copytree(d, dest)
-                n += 1
-                written.append(str(dest.relative_to(project)))
-            print(f"   [{host}] 技能 {n} 个 → {conf['skills_dir']}")
-
-        if "rulefile" in kind:
-            rf = project / conf["rule_file"]
-            rf.parent.mkdir(parents=True, exist_ok=True)
-            rf.write_text(mdc, encoding="utf-8")
-            written.append(str(rf.relative_to(project)))
-            print(f"   [{host}] 规则 → {conf['rule_file']}")
-
-        if "instruction" in kind:
-            name = conf["file"]
-            if not agents_md:
-                print(f"   [{host}] ⚠ 资产缺 AGENTS.md,跳过 {name}")
-                continue
-            action = _write_instruction_file(project, name, agents_md, force=force)
-            # 同一安装批次内,同一指令文件可能被多个宿主先后写入
-            # (如 codex 建文件 full,qoder 替换标记段 marker)——记录取最强动作,
-            # 防 full 被降级(否则全量卸载只剥标记段,残留我们创建的文件)。
-            _rank = {"full": 3, "marker": 2, "skipped": 1}
-            if _rank.get(action, 0) >= _rank.get(instruction_files.get(name, ""), 0):
-                instruction_files[name] = action
-            if action == "skipped":
-                print(
-                    f"   [{host}] ⚠ {name} 已存在,未改动(项目自有文件不受触碰)。\n"
-                    f"       合并方式:加 <!-- drogon-plugin begin/end --> 标记段,"
-                    f"或 --force-agents 追加(卸载只删标记段)"
+            if kind == "bundle":
+                bundle_touched = True  # 旧 bundle 此刻已被覆盖/清空(L5 回滚一并移除残缺新 bundle)
+                root = project / _INSTALL_DIR
+                if root.exists():
+                    shutil.rmtree(root)
+                count = _copy_assets(src_root, root)
+                (root / _STAMP_V2).write_text(
+                    json.dumps(
+                        {
+                            "source": "pypi:drogon-claude-plugin",
+                            "cli_version": _version(),
+                            "plugin_version": _plugin_version(root) or PLUGIN_VERSION,
+                            "files": count,
+                            # 受管文件摘要:verify 据此检测资产被改动/缺失/多余(C3)
+                            "hashes": _file_hashes(root, skip={_STAMP_V2}),
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
                 )
-            else:
-                print(f"   [{host}] 规则 → {name}({action})")
+                installed_hosts.extend(["claude", "zcode"])
+                continue
 
-        installed_hosts.append(host)
+            if kind.startswith("skills"):
+                skills_src = src_root / "skills"
+                dest_base = project / conf["skills_dir"]
+                n = 0
+                for d in sorted(skills_src.iterdir()):
+                    if not d.is_dir():
+                        continue
+                    dest = dest_base / d.name
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(d, dest)
+                    n += 1
+                    written.append(str(dest.relative_to(project)))
+                print(f"   [{host}] 技能 {n} 个 → {conf['skills_dir']}")
+
+            if "rulefile" in kind:
+                rf = project / conf["rule_file"]
+                rf.parent.mkdir(parents=True, exist_ok=True)
+                rf.write_text(mdc, encoding="utf-8")
+                written.append(str(rf.relative_to(project)))
+                print(f"   [{host}] 规则 → {conf['rule_file']}")
+
+            if "instruction" in kind:
+                name = conf["file"]
+                if not agents_md:
+                    print(f"   [{host}] ⚠ 资产缺 AGENTS.md,跳过 {name}")
+                    continue
+                action = _write_instruction_file(project, name, agents_md, force=force)
+                # 同一安装批次内,同一指令文件可能被多个宿主先后写入
+                # (如 codex 建文件 full,qoder 替换标记段 marker)——记录取最强动作,
+                # 防 full 被降级(否则全量卸载只剥标记段,残留我们创建的文件)。
+                _rank = {"full": 3, "marker": 2, "skipped": 1}
+                if _rank.get(action, 0) >= _rank.get(instruction_files.get(name, ""), 0):
+                    instruction_files[name] = action
+                if action == "skipped":
+                    print(
+                        f"   [{host}] ⚠ {name} 已存在,未改动(项目自有文件不受触碰)。\n"
+                        f"       合并方式:加 <!-- drogon-plugin begin/end --> 标记段,"
+                        f"或 --force-agents 追加(卸载只删标记段)"
+                    )
+                else:
+                    print(f"   [{host}] 规则 → {name}({action})")
+
+            installed_hosts.append(host)
+    except Exception as e:
+        # 回归(L5):此前半途异常(磁盘满/权限/文件被占)冒到顶层兜底,退出码虽对,
+        # 但前面宿主已落盘的产物无人认领 —— 安装戳未写 → 孤儿文件。必须回滚本次写入。
+        _rollback_install(project, written, instruction_files, bundle_touched, e)
+        return 1
 
     stamp = _load_stamp(project)
     # 指令文件动作取"最强":一旦 full(文件由我们创建)就不被后装的 marker
@@ -736,6 +782,37 @@ def _hosts_using_instruction(installed: "list[str]", name: str) -> set:
     }
 
 
+def _instruction_has_foreign_content(project: Path, name: str) -> bool:
+    """full 归属文件里是否残留插件标记段**之外**的实质内容(即用户追加)。
+
+    插件写 full 时整份文件就是一个标记段;剥掉标记段与孤立标记行后若仍非空,
+    说明用户在其后追加了自有内容。回归(L3):据此把"整删"降级为"剥段保留 + 告警"。
+    """
+    p = project / name
+    if not p.is_file():
+        return False
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return True  # 读不动就当有内容,绝不整删
+    residual = _MARKER_LINE_RE.sub("", _MARKER_SECTION_RE.sub("", text)).strip()
+    return bool(residual)
+
+
+def _drop_full_instruction(project: Path, name: str, removed: list) -> None:
+    """卸载 full 归属指令文件:纯插件产物整删;含用户追加内容则只剥标记段并告警。"""
+    if _instruction_has_foreign_content(project, name):
+        _strip_marker_section(project, name)
+        removed.append(f"{name}(已剥标记段,保留用户内容)")
+        print(
+            f"   ⚠ {name} 含插件标记段之外的自有内容(疑似用户追加)。\n"
+            f"       已只剥掉本插件标记段并保留文件,未整删;请自行核对该文件剩余内容。"
+        )
+    else:
+        (project / name).unlink()
+        removed.append(name)
+
+
 def _uninstall_instruction(project: Path, conf: dict, stamp: dict, removed: list, removing: list) -> None:
     """指令文件可能被多个宿主共享(codex / qoder / copilot / agents 都用 AGENTS.md)。
 
@@ -754,8 +831,8 @@ def _uninstall_instruction(project: Path, conf: dict, stamp: dict, removed: list
 
     action = stamp.get("instruction_files", {}).get(name)
     if action == "full" and (project / name).is_file():
-        (project / name).unlink()
-        removed.append(name)
+        _drop_full_instruction(project, name, removed)
+        stamp.setdefault("instruction_files", {}).pop(name, None)
     elif _strip_marker_section(project, name):
         # 标记段已剥:同步清掉安装记录,否则 stamp 会因"文件仍存在(用户自有内容)"
         # 而留下过期的 instruction_files → 安装戳残留、verify 显示半残状态。
@@ -863,8 +940,7 @@ def cmd_uninstall(args) -> int:
     removed: list = []
     for name, action in stamp.get("instruction_files", {}).items():
         if action == "full" and (project / name).is_file():
-            (project / name).unlink()
-            removed.append(name)
+            _drop_full_instruction(project, name, removed)  # 含用户追加内容时只剥段保留(L3)
         elif _strip_marker_section(project, name):
             removed.append(f"{name}(标记段)")
     for rel in stamp.get("files", []):
