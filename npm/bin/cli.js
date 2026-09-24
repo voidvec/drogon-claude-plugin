@@ -131,7 +131,10 @@ function bundledSkillCount() {
 function skillsOk(dir) {
   const n = skillCount(dir)
   const expected = bundledSkillCount()
-  return expected ? n === expected : n > 0
+  // 回归(M4′):随包枚举为 0 = 包本身残缺(assets/ 丢失),计数校验不得
+  // 退化成"非空即过"静默放行 —— 与 PyPI CLI 的 _skills_ok 同口径。
+  if (!expected) return false
+  return n === expected
 }
 
 const asPosix = (p) => p.split(path.sep).join('/')

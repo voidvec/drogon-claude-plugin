@@ -333,6 +333,156 @@ def test_npm_uninstall_keeps_mixed_host_v3_stamp(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 回归(第三轮批次④-C):M4′ 残缺包放行 / L3 整删用户追加 / L5 半途孤儿
+# ---------------------------------------------------------------------------
+
+
+def test_verify_flags_zero_bundled_skill_count(tmp_path, capsys, monkeypatch):
+    """回归(M4′):随包枚举为 0 = 包本身残缺,计数校验不得退化成"非空即过"。
+
+    用已装好的项目 + monkeypatch 把 `_bundled_skill_count` 打成 0 来复现残缺包:
+    verify 必须显式报问题,而不是静默按"目录非空"放行。
+    """
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "claude") == 0
+    monkeypatch.setattr(cli_mod, "_bundled_skill_count", lambda: 0)
+    capsys.readouterr()
+    assert _run_cli("verify", "--target", str(p)) == 1, "残缺包(expected=0)verify 被静默放行"
+    out = capsys.readouterr().out
+    assert "随包" in out and "0" in out, f"缺少残缺包诊断: {out}"
+
+
+def test_host_skill_dir_check_not_silently_passed_when_broken(tmp_path, monkeypatch):
+    """M4′ 同源:expected==0 时 _skills_ok 不得返回 True(残缺包"非空即过")。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    monkeypatch.setattr(cli_mod, "_bundled_skill_count", lambda: 0)
+    skills_dir = p / ".agents" / "skills"
+    assert skills_dir.is_dir() and any(skills_dir.iterdir()), "前提:agents 宿主应落了技能目录"
+    assert not cli_mod._skills_ok(skills_dir), "_skills_ok 在随包枚举=0 时仍放行(M4′ 复发)"
+
+
+@pytest.mark.skipif(_node() is None, reason="node not available")
+def test_npm_verify_fails_loudly_on_broken_package(tmp_path):
+    """M4′ 的 npm 侧:随包 skills 枚举为 0(找不到资产)时 verify 必须报错退出。
+
+    把 cli.js 复制到一个既无 assets/ 也非仓库子树的目录 → findAssets() 抛错 →
+    bundledSkillCount()=0;对一个完好安装的项目跑 verify,不得因"非空即过"放行。
+    """
+    import shutil as _sh
+    import subprocess
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    assert _run_cli("install", "--target", str(proj), "--host", "claude") == 0
+
+    pkg = tmp_path / "broken"
+    (pkg / "bin").mkdir(parents=True)
+    _sh.copy(REPO_ROOT / "npm" / "bin" / "cli.js", pkg / "bin" / "cli.js")
+    (pkg / "package.json").write_text('{"name":"x","version":"0"}', encoding="utf-8")
+
+    r = subprocess.run(
+        [_node(), str(pkg / "bin" / "cli.js"), "verify", "--target", str(proj)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r.returncode == 1, f"残缺包下 npm verify 静默放行(M4′ 复发):\n{r.stdout}{r.stderr}"
+    assert "随包" in (r.stdout + r.stderr), f"缺少残缺包诊断: {r.stdout}{r.stderr}"
+
+
+def test_uninstall_keeps_foreign_content_added_to_full_instruction(tmp_path, capsys):
+    """回归(L3):full 归属的指令文件被用户追加内容后,卸载不得整删。
+
+    此前 v3 戳不记哈希,uninstall 见 action==full 就 unlink → 用户追加的自有
+    章节一起消失。修复方向:标记段之外仍有实质内容 → 只剥标记段 + 显式告警。
+    """
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    f = p / "AGENTS.md"
+    assert f.is_file(), "前提:agents 宿主应创建 AGENTS.md"
+    assert f.read_text(encoding="utf-8").startswith(MARKER_BEGIN), "前提:full 归属=整文件标记段"
+    f.write_text(
+        f.read_text(encoding="utf-8") + "\n## 项目自有部署说明\n务必保留我写的这段。\n",
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+    assert _run_cli("uninstall", "--target", str(p), "--host", "agents") == 0
+    out = capsys.readouterr().out
+    assert f.is_file() and "务必保留我写的这段" in f.read_text(encoding="utf-8"), (
+        f"L3 复发:含用户追加内容的 full 指令文件被整删\n{out}"
+    )
+    assert MARKER_BEGIN not in f.read_text(encoding="utf-8"), "标记段应已被剥离"
+    assert "自有内容" in out or "告警" in out or "⚠" in out, f"删前未告警: {out}"
+
+
+def test_uninstall_pure_full_instruction_still_fully_removed(tmp_path):
+    """L3 正向对照:用户没动过的 full 指令文件(剥掉标记段即空)仍须整删,不留空壳。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    f = p / "AGENTS.md"
+    assert _run_cli("uninstall", "--target", str(p), "--host", "agents") == 0
+    assert not f.exists(), "纯插件产物未整删:留下无主空壳文件"
+    assert sorted(x.name for x in p.iterdir()) == [], "卸载残留(正向对照)"
+
+
+def test_install_midway_failure_leaves_no_orphans(tmp_path, capsys, monkeypatch):
+    """回归(L5):install 循环中途抛异常 → 已落盘产物必须回滚,不得留孤儿。
+
+    此前异常一路冒到 main() 的兜底 except:退出码对了,但前面宿主写下的
+    技能目录留在项目里,而 v3 戳未更新 → 无人认领的孤儿文件。
+    """
+    import shutil as _sh
+
+    real_copytree = _sh.copytree
+    state = {"n": 0}
+
+    def flaky(src, dst, *a, **kw):
+        # 只数顶层技能目录(real copytree 递归会带 7 个位置参数回调本函数)
+        s = Path(src)
+        if s.name.startswith("drogon-") and s.parent.name == "skills":
+            state["n"] += 1
+            if state["n"] >= 3:
+                raise OSError("注入:磁盘写失败")
+        return real_copytree(src, dst, *a, **kw)
+
+    monkeypatch.setattr(_sh, "copytree", flaky)
+    p = _make_project(tmp_path)
+    rc = _run_cli("install", "--target", str(p), "--host", "agents")
+    assert rc == 1, f"半途失败未返回非零? rc={rc}"
+
+    base = p / ".agents" / "skills"
+    leftovers = [d.name for d in base.iterdir()] if base.is_dir() else []
+    assert leftovers == [], f"L5 复发:失败安装留下孤儿技能目录 {leftovers}"
+    assert not (p / "AGENTS.md").exists(), "L5 复发:失败安装留下指令文件孤儿"
+    assert not (p / ".drogon-plugin-install.json").exists(), "失败安装不得更新安装戳"
+
+
+def test_install_midway_failure_restores_preexisting_instruction(tmp_path, capsys, monkeypatch):
+    """L5 正向对照:回滚只清"本次新增",不得动用户原有文件的内容。
+
+    用户对已存在的 AGENTS.md 只有我们写的标记段时,marker 编辑回滚等价于剥段;
+    这里验证用户自有内容原样保留。
+    """
+    import shutil as _sh
+
+    p = _make_project(tmp_path)
+    (p / "AGENTS.md").write_text("# 我的项目规则\n\n- 自有规则\n", encoding="utf-8")
+
+    real_copytree = _sh.copytree
+    state = {"n": 0}
+
+    def flaky(src, dst, **kw):
+        state["n"] += 1
+        if state["n"] >= 3:
+            raise OSError("注入:磁盘写失败")
+        return real_copytree(src, dst, **kw)
+
+    monkeypatch.setattr(_sh, "copytree", flaky)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 1
+    text = (p / "AGENTS.md").read_text(encoding="utf-8")
+    assert text == "# 我的项目规则\n\n- 自有规则\n", f"回滚动了用户原文件:\n{text!r}"
+
+
+# ---------------------------------------------------------------------------
 # 按宿主卸载的对称性与共享资源保护
 # ---------------------------------------------------------------------------
 
