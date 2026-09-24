@@ -97,8 +97,10 @@ HOSTS = {
     "copilot": {"kind": "skills+instruction", "skills_dir": ".agents/skills", "file": "AGENTS.md"},
     "agents": {"kind": "skills+instruction", "skills_dir": ".agents/skills", "file": "AGENTS.md"},
     "gemini": {"kind": "instruction", "file": "GEMINI.md"},
-    "qoder": {"kind": "instruction", "file": "AGENTS.md"},
-    "codebuddy": {"kind": "instruction", "file": "CODEBUDDY.md"},
+    # 增强(N4/N5,第三轮):补投各自官方技能目录通道,指令文件通道保持不变。
+    # 两宿主规范不开源、通道待真机复核;若宿主不读该目录,用户只多一个冗余副本。
+    "qoder": {"kind": "skills+instruction", "skills_dir": ".qoder/skills", "file": "AGENTS.md"},
+    "codebuddy": {"kind": "skills+instruction", "skills_dir": ".codebuddy/skills", "file": "CODEBUDDY.md"},
     # 回归(R10):Trae 官方规则是 .trae/rules/*.md,文档零处 .mdc —— 旧落点
     # drogon-plugin.mdc 是宿主不读的 inert 文件。改走 skills + AGENTS.md 双通道。
     "trae": {"kind": "skills+instruction", "skills_dir": ".trae/skills", "file": "AGENTS.md"},
@@ -106,6 +108,8 @@ HOSTS = {
 
 # `all` 的互斥规则(评审 #7):claude/zcode/codex/gemini/cursor 已有技能分发通道,
 # 不落 .agents/skills,避免 ZCode/VS Code 重复发现同名技能。
+# qoder/codebuddy(N4/N5)带**各自专属**技能目录(.qoder//.codebuddy/skills),
+# 不与 .agents/skills 冲突,故留在 `all` 范围内。
 ALL_HOSTS = ["claude", "zcode", "codex", "cursor", "gemini", "qoder", "codebuddy", "trae"]
 
 # 卸载时可能需要清理空目录的候选(仅当为空时删除)
@@ -118,6 +122,10 @@ _OUR_DIR_CANDIDATES = [
     ".trae/skills",
     ".trae/rules",  # 旧版 .mdc 落点(R10 已撤),空目录顺手清理
     ".trae",
+    ".qoder/skills",
+    ".qoder",
+    ".codebuddy/skills",
+    ".codebuddy",
 ]
 
 
@@ -390,8 +398,8 @@ _HOST_HINTS = {
     "copilot": "在 VS Code 打开本项目即生效(AGENTS.md + .agents/skills 自动发现)",
     "agents": "任何读取 AGENTS.md / .agents/skills 的工具打开本项目即生效",
     "gemini": f"gemini extensions install {_REPO_URL}(项目内 GEMINI.md 规则已即刻生效)",
-    "qoder": "Qoder 打开本项目即生效(官方兼容 AGENTS.md)",
-    "codebuddy": "CodeBuddy 打开本项目即读取 CODEBUDDY.md",
+    "qoder": "Qoder 打开本项目即生效(.qoder/skills 技能通道(N4 新增)+ AGENTS.md 规则)",
+    "codebuddy": "CodeBuddy 打开本项目即生效(.codebuddy/skills 技能通道(N5 新增)+ CODEBUDDY.md)",
     "trae": "Trae 打开本项目即生效(.trae/skills + AGENTS.md;旧 .trae/rules/*.mdc 已撤,R10)",
 }
 
@@ -965,6 +973,8 @@ def cmd_uninstall(args) -> int:
             ".cursor/skills/drogon-*",
             ".agents/skills/drogon-*",
             ".trae/skills/drogon-*",
+            ".qoder/skills/drogon-*",       # N4 新增通道,无戳兜底同样负责清扫
+            ".codebuddy/skills/drogon-*",   # N5 同上
             ".cursor/rules/drogon-plugin.mdc",
             ".trae/rules/drogon-plugin.mdc",  # 旧版落点(R10),无戳兜底时仍负责清扫
         ):
