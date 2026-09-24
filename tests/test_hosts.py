@@ -470,16 +470,70 @@ def test_install_midway_failure_restores_preexisting_instruction(tmp_path, capsy
     real_copytree = _sh.copytree
     state = {"n": 0}
 
-    def flaky(src, dst, **kw):
-        state["n"] += 1
-        if state["n"] >= 3:
-            raise OSError("注入:磁盘写失败")
-        return real_copytree(src, dst, **kw)
+    def flaky(src, dst, *a, **kw):
+        s = Path(src)
+        if s.name.startswith("drogon-") and s.parent.name == "skills":
+            state["n"] += 1
+            if state["n"] >= 3:
+                raise OSError("注入:磁盘写失败")
+        return real_copytree(src, dst, *a, **kw)
 
     monkeypatch.setattr(_sh, "copytree", flaky)
     assert _run_cli("install", "--target", str(p), "--host", "agents") == 1
     text = (p / "AGENTS.md").read_text(encoding="utf-8")
     assert text == "# 我的项目规则\n\n- 自有规则\n", f"回滚动了用户原文件:\n{text!r}"
+
+
+# ---------------------------------------------------------------------------
+# 回归(第三轮批次④ N4/N5):qoder / codebuddy 的官方技能发现通道
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "host,skills_dir,instruction",
+    [
+        ("qoder", ".qoder/skills", "AGENTS.md"),
+        ("codebuddy", ".codebuddy/skills", "CODEBUDDY.md"),
+    ],
+)
+def test_qoder_codebuddy_use_official_skill_channel(tmp_path, host, skills_dir, instruction):
+    """N4/N5:此前两宿主 kind=instruction,只落规则文件,官方技能通道整体空置。
+
+    增强方向(加法,不改既有通道):技能按宿主专属目录投放,指令文件照旧,
+    宿主不认该目录时用户仅得冗余副本 —— 与 cursor/copilot/trae 的既有做法同构。
+    """
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", host) == 0
+
+    base = p / skills_dir
+    assert base.is_dir(), f"{host}: 未投放官方技能通道 {skills_dir}"
+    assert len([d for d in base.iterdir() if d.is_dir()]) == SKILL_COUNT, f"{host}: 技能数不全"
+    assert (base / "drogon-create-controller" / "SKILL.md").is_file()
+    assert (p / instruction).is_file(), f"{host}: 指令文件通道被改坏(应为加法非替换)"
+
+    assert _run_cli("verify", "--target", str(p)) == 0, f"{host}: 新通道未纳入 verify"
+    assert _run_cli("uninstall", "--target", str(p), "--host", host) == 0
+    left = sorted(x.name for x in p.iterdir())
+    assert left == [], f"{host}: 卸载残留 {left}"
+
+
+def test_qoder_skill_uninstall_keeps_host_shared_by_others(tmp_path):
+    """N4 守卫方向:qoder 的技能目录不得被别的宿主卸载连带删除。
+
+    copilot/agents 共用 .agents/skills;qoder 独占 .qoder/skills。卸载 copilot
+    只应动 .agents/skills,.qoder/skills 必须原样留下。
+    """
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "qoder") == 0
+    assert _run_cli("install", "--target", str(p), "--host", "copilot") == 0
+
+    assert _run_cli("uninstall", "--target", str(p), "--host", "copilot") == 0
+    assert (p / ".qoder" / "skills" / "drogon-create-controller" / "SKILL.md").is_file(), (
+        "卸载 copilot 连带删掉了 qoder 独占的技能目录"
+    )
+    assert not (p / ".agents" / "skills" / "drogon-create-controller").exists(), (
+        "copilot 自身技能未清"
+    )
 
 
 # ---------------------------------------------------------------------------

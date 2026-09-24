@@ -25,8 +25,8 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code/plugins) / [ZCode
 | **Cursor** | `drogon-claude-plugin install --host cursor` in your project → `.cursor/skills/` + `.cursor/rules/` | skills + rules |
 | **VS Code (Copilot)** | `drogon-claude-plugin install --host copilot` → `.agents/skills/` + `AGENTS.md` | skills + rules |
 | **Gemini CLI** | `gemini extensions install https://github.com/voidvec/drogon-claude-plugin` | skills + GEMINI.md context |
-| **Qoder** | `drogon-claude-plugin install` (drops `AGENTS.md`) | rules |
-| **CodeBuddy** | `drogon-claude-plugin install` (drops `CODEBUDDY.md`) | rules |
+| **Qoder** | `drogon-claude-plugin install --host qoder` → `.qoder/skills/` + `AGENTS.md` | skills + rules (skill dir pending on-device verification) |
+| **CodeBuddy** | `drogon-claude-plugin install --host codebuddy` → `.codebuddy/skills/` + `CODEBUDDY.md` | skills + rules (skill dir pending on-device verification) |
 | **Trae** | `drogon-claude-plugin install` (drops `.trae/skills/` + `AGENTS.md`) | skills + rules |
 
 Maintenance tiers: **Tier 1** (actively maintained) — Claude Code, ZCode, Codex, Cursor, VS Code + `.agents` fallback. **Best effort** — Gemini CLI, Qoder, CodeBuddy, Trae.
@@ -71,7 +71,7 @@ You should see **22 skills** and **2 hooks** (SessionStart + PostToolUse).
 
 | Command | What it does |
 |---------|--------------|
-| `drogon-claude-plugin install [--host LIST] [--force-agents]` | Installs per host: bundle for Claude/ZCode, `.cursor/skills` + rules for Cursor, instruction files for Codex/Gemini/Qoder/CodeBuddy, `.trae/skills` + `AGENTS.md` for Trae; `all` respects mutual exclusion (no `.agents/skills` duplication) |
+| `drogon-claude-plugin install [--host LIST] [--force-agents]` | Installs per host: bundle for Claude/ZCode, `.cursor/skills` + rules for Cursor, instruction files for Codex/Gemini, `.qoder/skills` + `AGENTS.md` for Qoder, `.codebuddy/skills` + `CODEBUDDY.md` for CodeBuddy, `.trae/skills` + `AGENTS.md` for Trae; `all` respects mutual exclusion (no `.agents/skills` duplication) |
 | `drogon-claude-plugin scan [--format json] [--strict] [PATH...]` | Violation scan for hosts without hooks and for CI (exit 1 with `--strict`); paths are boundary-checked to stay inside the project |
 | `drogon-claude-plugin hosts` | Lists supported hosts and their install kind |
 | `drogon-claude-plugin verify [--target DIR]` | Validates the installed structure and reports per-host status |
