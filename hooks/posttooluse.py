@@ -83,7 +83,11 @@ CPP_RULES: List[Rule] = [
     # --- HttpClient sync deadlock -----------------------------------------
     # Matches the sync overload client->sendRequest(req) / sendRequest(req, timeout)
     # (no callback parameter) — it has a deadlock assert when called from the loop thread.
-    Rule("CPP.007", "error", r"->\s*sendRequest\s*\(\s*[^,)]+(?:,\s*[\d.]+\s*)?\)",
+    # 回归(L6):timeout 实参常是具名变量(kTimeout/req_timeout),不止数字字面量;
+    # 只放行"名字含 timeout"的标识符,避免把 sendRequest(req, cb) 的回调变量误报。
+    Rule("CPP.007", "error",
+         r"->\s*sendRequest\s*\(\s*[^,)]+(?:,\s*(?:[\d.]+|0[xX][\da-fA-F]+"
+         r"|[A-Za-z_]\w*(?:[Tt]imeout|[Tt]IMEOUT)\w*)\s*)?\)",
          "HttpClient synchronous sendRequest(req [, timeout]) has a deadlock assert and must NOT be "
          "called in the event-loop thread / handler. Use the async overload sendRequest(req, callback) "
          "or sendRequestCoro() (HttpClient.h:133).",
@@ -111,7 +115,10 @@ CPP_RULES: List[Rule] = [
 # rules opt into re.IGNORECASE (matching the comment intent that v0.3.x only
 # documented but never implemented).
 CSP_RULES: List[Rule] = [
-    Rule("CSP.001", "error", r"\{\{.*\}\}",
+    # 回归(L6):`{{` 与 `}}` 分行书写的 Jinja 风格输出同样非法——
+    # 内容段用"非 `}}` 任意字符(含换行)"的受约束类跨行匹配,
+    # 不用 DOTALL+贪婪(会从首个 `{{` 一口吞到末个 `}}`,放大误报面)。
+    Rule("CSP.001", "error", r"\{\{(?:[^}]|\}(?!\}))*\}\}",
          "{{ }} is Jinja2/Mustache syntax, not supported by drogon CSP. Use [[ key ]] for inline output.",
          "drogon-gen-csp-view", re.IGNORECASE),
     Rule("CSP.002", "error", r"<%raw%>|<\/%raw%>",
@@ -356,6 +363,16 @@ def _emit_scan_error(fmt: str, message: str) -> None:
         print(message, file=sys.stderr)
 
 
+def _escapes_workspace(path: str, workspace_real: str) -> bool:
+    """True when ``path``'s realpath lands outside ``workspace_real``(已 realpath)。
+
+    回归(L4):顶层参数的 realpath 预检盖不住**目录内**指向外部的文件符号链接
+    (os.walk 不跟随目录链接,但文件链接会被 open() 跟随)→ 逐文件复核用本函数。
+    """
+    rp = os.path.realpath(path)
+    return not (rp == workspace_real or rp.startswith(workspace_real + os.sep))
+
+
 def scan_paths(paths, fmt: str = "human", strict: bool = False) -> int:
     """Scan files/directories; print report; return process exit code."""
     cwd = os.path.realpath(os.getcwd())
@@ -371,6 +388,9 @@ def scan_paths(paths, fmt: str = "human", strict: bool = False) -> int:
     findings = []  # list of {file, violations: [msg], rules: [{rule_id, severity, guide}]}
     for rp in resolved:
         for f in _iter_scannable(rp):
+            if _escapes_workspace(f, cwd):
+                # L4:符号链接(或重解析点)把内容指到工作区外 → 不读其内容
+                continue
             category = file_category(f)
             try:
                 text = open(f, encoding="utf-8", errors="ignore").read()
