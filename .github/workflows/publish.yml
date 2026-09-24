@@ -41,6 +41,8 @@ jobs:
       - name: Pre-publish gates (consistency + asset sync + full test suite)
         run: |
           pip install -r requirements-dev.txt
+          python scripts/sync-assets.py
+          node scripts/sync-assets.mjs
           python scripts/check-consistency.py
           python scripts/sync-assets.py --check
           node scripts/sync-assets.mjs --check
