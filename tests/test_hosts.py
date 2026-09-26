@@ -306,29 +306,56 @@ def test_npm_target_missing_value_errors_not_silent_cwd(tmp_path):
 
 
 @pytest.mark.skipif(_node() is None, reason="node not available")
+def test_npm_target_empty_or_option_like_value_errors(tmp_path):
+    """L2 补漏(评审):空串取值经 `args.target || cwd` 仍会静默回退 cwd;
+    取值形似选项(--foo)也必须报用法错误。两支都退出码 2。"""
+    import subprocess
+
+    cli_js = str(REPO_ROOT / "npm" / "bin" / "cli.js")
+    for bad in ("", "--foo"):
+        r = subprocess.run(
+            [_node(), cli_js, "verify", "--target", bad],
+            capture_output=True, text=True, encoding="utf-8", cwd=str(tmp_path),
+        )
+        assert r.returncode == 2, (
+            f"L2 残留:--target {bad!r} 应退出码 2,实得 {r.returncode}\n{r.stdout}{r.stderr}"
+        )
+
+
+@pytest.mark.skipif(_node() is None, reason="node not available")
 def test_npm_uninstall_keeps_mixed_host_v3_stamp(tmp_path):
     """L1 正向对照:混合宿主(含 bundle 之外)的 v3 戳不得被 npm uninstall 删除。
 
     根指令文件由各宿主安装器各自管理;npm 只清纯 bundle 安装,
     混合安装必须保留记录并提示用 PyPI CLI 收尾,否则会删掉别人依赖的账本。
+    评审补漏:此前用 `--host claude --host agents`(argparse store 后者覆盖前者,
+    实际只装了 agents)未构造真混合;现用逗号形式一次装两类通道。
     """
     import json
     import subprocess
 
     p = tmp_path / "mixed"
     p.mkdir()
-    assert _run_cli("install", "--target", str(p), "--host", "claude", "--host", "agents") == 0
+    assert _run_cli("install", "--target", str(p), "--host", "claude,agents") == 0
     v3 = p / ".drogon-plugin-install.json"
-    assert "agents" in json.loads(v3.read_text(encoding="utf-8"))["hosts"]
+    hosts_before = json.loads(v3.read_text(encoding="utf-8"))["hosts"]
+    assert {"claude", "zcode", "agents"} <= set(hosts_before), f"前提:真混合安装 {hosts_before}"
+    assert (p / ".drogon-plugin").is_dir(), "前提:claude 通道应落 bundle"
+    agents_md = (p / "AGENTS.md").read_text(encoding="utf-8")
 
     r = subprocess.run(
         [_node(), str(REPO_ROOT / "npm" / "bin" / "cli.js"), "uninstall", "--target", str(p)],
         capture_output=True, text=True, encoding="utf-8",
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert not (p / ".drogon-plugin").exists()
+    assert not (p / ".drogon-plugin").exists(), "npm 应清掉自己管的 bundle"
     assert v3.is_file(), "混合宿主戳被误删:npm 只应清除纯 bundle(claude/zcode)安装"
-    assert (p / "AGENTS.md").exists(), "agents 宿主的根指令文件应原样保留"
+    assert json.loads(v3.read_text(encoding="utf-8"))["hosts"] == hosts_before, (
+        "保留的戳内容被改写(账本必须原样)"
+    )
+    assert (p / "AGENTS.md").read_text(encoding="utf-8") == agents_md, (
+        "agents 宿主的根指令文件应原样保留"
+    )
     assert "drogon-claude-plugin uninstall" in (r.stdout + r.stderr), "应提示用 PyPI CLI 收尾"
 
 
@@ -424,6 +451,23 @@ def test_uninstall_pure_full_instruction_still_fully_removed(tmp_path):
     assert sorted(x.name for x in p.iterdir()) == [], "卸载残留(正向对照)"
 
 
+def test_uninstall_full_instruction_with_undecodable_bytes_keeps_file(tmp_path, capsys):
+    """L3 边界(评审补漏):full 归属指令文件非 UTF-8(如用户转了 GBK 编码)→
+    uninstall 不得 UnicodeDecodeError 崩溃;读不动就当"含用户内容":原样保留 + 告警。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    f = p / "AGENTS.md"
+    raw = b"\xff\xfe" + "我的规则".encode("gbk", errors="replace")
+    f.write_bytes(raw)
+    capsys.readouterr()
+    assert _run_cli("uninstall", "--target", str(p), "--host", "agents") == 0, (
+        "非 UTF-8 指令文件令 uninstall 崩溃(应保守保留)"
+    )
+    assert f.read_bytes() == raw, "读不动的文件被改动/删除(应原样保留)"
+    out = capsys.readouterr().out
+    assert "⚠" in out or "保留" in out, f"未告警: {out}"
+
+
 def test_install_midway_failure_leaves_no_orphans(tmp_path, capsys, monkeypatch):
     """回归(L5):install 循环中途抛异常 → 已落盘产物必须回滚,不得留孤儿。
 
@@ -484,6 +528,99 @@ def test_install_midway_failure_restores_preexisting_instruction(tmp_path, capsy
     assert text == "# 我的项目规则\n\n- 自有规则\n", f"回滚动了用户原文件:\n{text!r}"
 
 
+def test_install_midway_failure_strips_marker_from_user_instruction(tmp_path, monkeypatch):
+    """L5 marker 回滚分支覆盖(评审补漏,此前零覆盖)。
+
+    单宿主 install 时技能先于指令文件落盘,失败点永远够不到 marker 编辑;
+    这里让第一个宿主(agents)完整走完技能+标记段追加,第二个宿主(cursor)
+    技能复制时才炸 —— 回滚必须剥掉本次追加的标记段、用户内容一字不动。
+    """
+    import shutil as _sh
+
+    p = _make_project(tmp_path, with_user_agents=True)
+    real_copytree = _sh.copytree
+    state = {"n": 0}
+
+    def flaky(src, dst, *a, **kw):
+        s = Path(src)
+        if s.name.startswith("drogon-") and s.parent.name == "skills":
+            state["n"] += 1
+            if state["n"] > SKILL_COUNT:  # 进入第二个宿主的技能复制才炸
+                raise OSError("注入:磁盘写失败")
+        return real_copytree(src, dst, *a, **kw)
+
+    monkeypatch.setattr(_sh, "copytree", flaky)
+    rc = _run_cli("install", "--target", str(p), "--host", "agents,cursor", "--force-agents")
+    assert rc == 1, f"半途失败未返回非零? rc={rc}"
+
+    text = (p / "AGENTS.md").read_text(encoding="utf-8")
+    assert "# 我的项目规则" in text and "- 自有规则" in text, f"用户内容被动了:\n{text!r}"
+    assert MARKER_BEGIN not in text, f"回滚未剥掉本次追加的标记段:\n{text!r}"
+    base = p / ".agents" / "skills"
+    leftovers = [d.name for d in base.iterdir()] if base.is_dir() else []
+    assert leftovers == [], f"回滚留下孤儿技能目录 {leftovers}"
+    assert not (p / ".cursor" / "skills").exists() or not any((p / ".cursor" / "skills").iterdir()), (
+        "cursor 半途产物未清"
+    )
+    assert not (p / ".drogon-plugin-install.json").exists(), "失败安装不得更新安装戳"
+
+
+def test_install_failure_restores_previous_bundle(tmp_path, monkeypatch):
+    """L5 评审补漏:重装 claude 半途失败,此前实现先 rmtree 旧 bundle → 回滚只删
+    残缺新 bundle,旧 bundle 永久丢失而旧戳仍宣称已装。修复方向:旧 bundle 改名
+    备份,成功删备份、失败原样恢复。"""
+    import shutil as _sh
+
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "claude") == 0
+    bundle = p / ".drogon-plugin"
+    sentinel = bundle / "OLD-SENTINEL.txt"
+    sentinel.write_text("old-bundle", encoding="utf-8")
+
+    real_copy2 = _sh.copy2
+    state = {"n": 0}
+
+    def flaky(src, dst, *a, **kw):
+        state["n"] += 1
+        if state["n"] >= 5:
+            raise OSError("注入:磁盘写失败")
+        return real_copy2(src, dst, *a, **kw)
+
+    monkeypatch.setattr(_sh, "copy2", flaky)
+    assert _run_cli("install", "--target", str(p), "--host", "claude") == 1
+    assert sentinel.is_file(), "旧 bundle 未随回滚恢复(被 rmtree 摧毁,不可回退)"
+    assert (bundle / "CLAUDE.md").is_file(), "恢复后的旧 bundle 应完整可用"
+    leftovers = [x.name for x in p.iterdir() if ".old-" in x.name]
+    assert leftovers == [], f"备份目录残留: {leftovers}"
+
+
+def test_install_keyboard_interrupt_rolls_back(tmp_path, monkeypatch):
+    """L5 评审补漏:except Exception 不捕 KeyboardInterrupt → Ctrl+C 场景孤儿依旧。
+    中断也必须回滚本次写入,退出码 130。"""
+    import shutil as _sh
+
+    p = _make_project(tmp_path)
+    real_copytree = _sh.copytree
+    state = {"n": 0}
+
+    def flaky(src, dst, *a, **kw):
+        s = Path(src)
+        if s.name.startswith("drogon-") and s.parent.name == "skills":
+            state["n"] += 1
+            if state["n"] >= 3:
+                raise KeyboardInterrupt
+        return real_copytree(src, dst, *a, **kw)
+
+    monkeypatch.setattr(_sh, "copytree", flaky)
+    rc = _run_cli("install", "--target", str(p), "--host", "agents")
+    assert rc == 130, f"Ctrl+C 应返回 130,实得 {rc}"
+    base = p / ".agents" / "skills"
+    leftovers = [d.name for d in base.iterdir()] if base.is_dir() else []
+    assert leftovers == [], f"中断留下孤儿技能目录 {leftovers}"
+    assert not (p / "AGENTS.md").exists(), "中断留下指令文件孤儿"
+    assert not (p / ".drogon-plugin-install.json").exists(), "中断不得更新安装戳"
+
+
 # ---------------------------------------------------------------------------
 # 回归(第三轮批次④ N4/N5):qoder / codebuddy 的官方技能发现通道
 # ---------------------------------------------------------------------------
@@ -528,7 +665,11 @@ def test_qoder_skill_uninstall_keeps_host_shared_by_others(tmp_path):
     assert _run_cli("install", "--target", str(p), "--host", "copilot") == 0
 
     assert _run_cli("uninstall", "--target", str(p), "--host", "copilot") == 0
-    assert (p / ".qoder" / "skills" / "drogon-create-controller" / "SKILL.md").is_file(), (
+    qskills = p / ".qoder" / "skills"
+    assert qskills.is_dir() and len(list(qskills.iterdir())) == SKILL_COUNT, (
+        "卸载 copilot 后 qoder 独占技能目录应完整保留(数量不减)"
+    )
+    assert (qskills / "drogon-create-controller" / "SKILL.md").is_file(), (
         "卸载 copilot 连带删掉了 qoder 独占的技能目录"
     )
     assert not (p / ".agents" / "skills" / "drogon-create-controller").exists(), (

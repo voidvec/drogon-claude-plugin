@@ -10,17 +10,17 @@
 
 登记依据见 `docs/ROUND3-SPEC-HOST-PLATFORM-CORRECTNESS-REVIEW.md` §6 批次④（L1–L6、M4′、N3–N5）。
 
-- **npm↔PyPI 互操作残留**（L1）：PyPI CLI 写的项目根 v3 安装戳 `.drogon-plugin-install.json` 此前 npm `uninstall` 不识别、永久残留。现纯 bundle 宿主（claude/zcode）安装由 npm 卸载一并清除；混合宿主保留记录并提示用 PyPI CLI 收尾（正向对照测试锁"不误删他人账本"）。
-- **npm `--target` 缺值静默按 cwd 执行**（L2）：typo 即操作错目录。现缺值/取值形似选项 → 用法错误退出码 2，与 PyPI argparse 对齐。
-- **`--scan` 符号链接逃逸**（L4）：项目内指向工作区外的文件符号链接绕过顶层 realpath 预检被读取。现逐文件复核（`_escapes_workspace`），出界即跳过；工作区内链接照扫。
-- **钩子规则缺口**（L6）：CPP.007 漏同步重载 `sendRequest(req, timeoutVar)`（具名 timeout 变量）；CSP.001 漏跨行书写的 `{{ }}`。均已补齐，异步重载与合法跨行 `[[ ]]` 负例锁死误报面。
-- **残缺包静默绿灯**（M4′）：两 CLI 的"随包技能枚举为 0 时非空即过"降级删除——expected==0 本身即包残缺，verify 现显式失败并给诊断。
-- **含用户追加内容的指令文件被整删**（L3）：`full` 归属文件卸载前现检测标记段之外的实质内容：有则只剥标记段 + 保留文件 + 告警；纯插件产物仍整删不留空壳。
-- **install 半途失败留孤儿文件**（L5）：宿主循环纳入回滚——磁盘/权限类失败清除本次写入（技能目录/规则文件/半成品 bundle/本次指令文件动作），安装戳不更新，用户原有文件不触碰。
+- **npm↔PyPI 互操作残留**（L1）：PyPI CLI 写的项目根 v3 安装戳 `.drogon-plugin-install.json` 此前 npm `uninstall` 不识别、永久残留。现纯 bundle 宿主（claude/zcode）安装由 npm 卸载一并清除；混合宿主保留记录（账本原样不改写）并提示用 PyPI CLI 收尾（正向对照测试锁"不误删他人账本"，评审后补真混合场景 `--host claude,agents`）。
+- **npm `--target` 缺值静默按 cwd 执行**（L2）：typo 即操作错目录。现缺值/空串/取值形似选项 → 用法错误退出码 2，与 PyPI argparse 对齐。
+- **`--scan` 符号链接逃逸**（L4）：项目内指向工作区外的文件符号链接绕过顶层 realpath 预检被读取。现逐文件复核（`_escapes_workspace`），出界即跳过；工作区内链接照扫（对照测试同时断言真身与链接均被扫，修正此前会在 ubuntu CI 必红的断言）。
+- **钩子规则缺口**（L6）：CPP.007 漏同步重载 `sendRequest(req, timeoutVar)`——含裸名 `timeout`/`TIMEOUT`（评审补漏）与数字/十六进制字面量；CSP.001 漏跨行书写的 `{{ }}`。均已补齐，异步重载（lambda 二参、三参 `(req, cb, timeout)`）与合法跨行 `[[ ]]` 负例锁死误报面。
+- **残缺包静默绿灯**（M4′）：两 CLI 的"随包技能枚举为 0 时非空即过"降级删除——expected==0 本身即包残缺，bundle/技能宿主的计数校验现显式失败并给"(包残缺)"诊断（纯指令文件宿主无技能产物可校验，不在此列）。
+- **含用户追加内容的指令文件被整删**（L3）：`full` 归属文件卸载前现检测标记段之外的实质内容：有则只剥标记段 + 保留文件 + 告警；纯插件产物仍整删不留空壳。文件不可读/非 UTF-8（如用户转了编码）按"有内容"保守保留，不再 UnicodeDecodeError 崩溃。
+- **install 半途失败留孤儿文件**（L5）：宿主循环纳入回滚——磁盘/权限类失败与 Ctrl+C 中断（退出码 130）均清除本次写入（技能目录/规则文件/半成品 bundle/本次指令文件动作，含 marker 追加段剥回），安装戳不更新，用户原有文件不触碰。评审补漏：重装 bundle 宿主时旧 `.drogon-plugin/` 改为改名备份，失败原样恢复（此前先 rmtree、失败即不可回退）。
 
 ### Changed — 第三轮批次④
 
-- **Qoder / CodeBuddy 补投官方技能通道**（N4/N5，安装器增强）：`--host qoder` 现同时落 `.qoder/skills/`、`--host codebuddy` 落 `.codebuddy/skills/`（指令文件通道不变，加法增强）。两宿主规范不开源，通道效果待真机核验，README 已标注。N3（MultiEdit 过时/NotebookEdit 覆盖）核实已由批次①的黑名单改法闭环，无遗留。
+- **Qoder / CodeBuddy 补投官方技能通道**（N4/N5，安装器增强）：`--host qoder` 现同时落 `.qoder/skills/`、`--host codebuddy` 落 `.codebuddy/skills/`（指令文件通道不变，加法增强）。两宿主规范不开源，通道效果待真机核验，README 已标注。N3 核实：payload 层（posttooluse.py 工具名白名单）已由批次①黑名单改法闭环；hooks.json matcher 仍不含 `NotebookEdit`——该工具只作用于 `.ipynb`，扫描器不处理此扩展名，无实际扫描损失，仅登记。
 
 ## [0.4.0] - 2026-09-24
 

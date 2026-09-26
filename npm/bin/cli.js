@@ -342,8 +342,13 @@ function cmdVerify(args) {
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .sort()
-      if (!skillsOk(skillsDir))
-        problems.push(`技能数 ${skillNames.length} != 随包 ${bundledSkillCount()}`)
+      if (!skillsOk(skillsDir)) {
+        const bundled = bundledSkillCount()
+        problems.push(
+          `技能数 ${skillNames.length} != 随包 ${bundled}` +
+            (bundled ? '' : '(包残缺:随包技能枚举为 0,请重装/upgrade 本包)')
+        )
+      }
       for (const n of skillNames) {
         if (!fs.existsSync(path.join(skillsDir, n, 'SKILL.md')))
           problems.push(`技能 ${n} 缺少 SKILL.md`)
@@ -541,10 +546,11 @@ function main() {
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--target') {
-      // 回归(L2):缺值或取值像选项时必须退出码 2 报用法错误。
-      // 此前 `argv[++i]` 拿到 undefined → resolveProjectDir 静默回退 cwd,typo 即操作错目录。
+      // 回归(L2):缺值、空串或取值像选项时必须退出码 2 报用法错误。
+      // 此前 `argv[++i]` 拿到 undefined → resolveProjectDir 静默回退 cwd,typo 即操作错目录;
+      // 空串同病(`args.target || cwd` 把 '' 当 falsy)。
       const v = argv[++i]
-      if (v === undefined || v.startsWith('--')) {
+      if (v === undefined || v === '' || v.startsWith('--')) {
         console.error(`缺少 --target 取值:用法为 --target DIR`)
         return 2
       }
