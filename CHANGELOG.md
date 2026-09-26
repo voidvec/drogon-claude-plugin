@@ -22,6 +22,10 @@
 
 - **Qoder / CodeBuddy 补投官方技能通道**（N4/N5，安装器增强）：`--host qoder` 现同时落 `.qoder/skills/`、`--host codebuddy` 落 `.codebuddy/skills/`（指令文件通道不变，加法增强）。两宿主规范不开源，通道效果待真机核验，README 已标注。N3 核实：payload 层（posttooluse.py 工具名白名单）已由批次①黑名单改法闭环；hooks.json matcher 仍不含 `NotebookEdit`——该工具只作用于 `.ipynb`，扫描器不处理此扩展名，无实际扫描损失，仅登记。
 
+### Security — 第三轮批次④ L7 残项
+
+- **workflow action 全量 SHA 固定**：`ci.yml` / `publish.yml` 的 10 处 `uses:` 从可变 tag/分支引用改为 40 位 commit SHA + 版本注释（checkout v4.4.0 / setup-python v5.6.0 / setup-node v4.4.0 / pypa publish v1.14.2（release/v1 HEAD @2026-09）/ action-gh-release v2.6.2，均经 `commits/<tag>` API 剥取核验）。tag 可被重指向或随仓库所有权转移，未固定的 `uses:` 让持 PyPI/npm 凭证的 publish 作业跑在不可控代码上。新增守卫测试 `tests/test_ci_pinning.py`（未固定即红；SHA 行缺版本注释即红，防升级时无从比对）。主版本刻意不升（checkout v7 / setup-python v7 等为独立变更，另轮评估）。
+
 ## [0.4.0] - 2026-09-24
 
 仓库专业化改造。诊断报告见 `docs/PROFESSIONALIZATION-REVIEW.md`,技能作者手册见 `docs/SKILL-AUTHORING.md`。
