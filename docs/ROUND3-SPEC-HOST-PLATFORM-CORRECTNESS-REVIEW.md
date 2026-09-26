@@ -162,9 +162,9 @@ H6 换行固定（autocrlf=true 临时克隆实证 4 钩子脚本全 LF；`git l
 | V3 | **基本证伪必填担忧**：Codex 清单仅 `name` 必填、`interface` 无必填项；真机降级为冒烟确认 | Codex 构建插件文档 |
 | V4 | **已证伪**：Trae 规则为 `.trae/rules/*.md`，文档零处 `.mdc` → R10 | docs.trae.ai/ide/rules（页面全文检索） |
 | V5 | **已证实**：`globs`/`alwaysApply` 现行有效，`alwaysApply:true` 全文应用 | cursor.com/docs/context/rules |
-| V6 | **仍需真机**（Codex 缓存安装下 `source.path` 解析基准无公开样例）；另注意 Codex 原生发现 `.agents/skills`，该兜底通道价值上升 | — |
+| V6 | **已真机证实（本地 marketplace 路径）**（2026-09-26，codex-cli 0.156.1 / win32，未登录态）：`marketplace add <本地目录>` + `plugin add drogon@drogon-claude-plugin` 全链走通；`source.path: "./"` 以 **marketplace 根（仓库根）**为解析基准成立；安装语义=**工作区整树快照复制**至 `~/.codex/plugins/cache/<mkt>/drogon/<version>/`（连同 `.git`/`build`/`dist` 等脏产物，实测 452 文件），`plugin list` 的 SOURCE 显示原始仓库路径。GitHub 型 marketplace 的 ref 解析仍未测 | 见 §7 真机补录 |
 
-新增待真机项：V7 = pip 解包 wheel 后钩子脚本可执行位是否保留（P2 关联）；V8 = Codex `additionalContext` ~2500 token 上限下中文规则全文注入是否降级为磁盘预览（N7）。
+新增待真机项：V7 = pip 解包 wheel 后钩子脚本可执行位是否保留（P2 关联）——**渠道分析结案**：发布作业固定 ubuntu-latest 构建，git 中 `hooks/post-tool-use`、`run-hook.cmd`、`session-start` 均为 100755，ubuntu 下 `python -m build` 将 unix mode 记入 wheel、pip 安装还原、PyPI CLI `shutil.copy2` 保留位（npm 侧另有显式 chmod 755）；Windows 本地构建的 wheel 无执行位属文件系统常态、不构成反证。正向复核（CI 产物 wheel 解包看 mode）可随下次发版顺手做。V8 = Codex `additionalContext` ~2500 token 上限下中文规则全文注入是否降级为磁盘预览（N7）——**已量化，未证实降级行为**（需 `codex` 登录态跑一次会话，本机未登录）。
 
 ---
 
@@ -184,3 +184,41 @@ H6 换行固定（autocrlf=true 临时克隆实证 4 钩子脚本全 LF；`git l
 | ⑤ | 门禁 | — | 盲区 1–5 各补正/反向用例；publish.yml 加 check-consistency；CI 矩阵加 py3.9/3.13 |
 
 > 所有 `skills/`、`hooks/` 修复必须走 `scripts/gen-host-artifacts.py` + `sync-assets` 同步链，`npm/assets/` 与 `drogon_plugin_assets/` 为生成物，勿手改。
+
+---
+
+## 7. 真机核实补录（2026-09-26，批次④ 后续）
+
+环境：Windows 11 (10.0.26200) / codex-cli 0.156.1 / **未登录**（`codex login status` = Not logged in）。核实后已 `codex plugin remove drogon@drogon-claude-plugin` + `marketplace remove` 并清缓存目录，用户 Codex 配置还原至核实前状态。
+
+### V6 — 本地 marketplace 的 `source.path` 解析基准（证实）
+
+```
+codex plugin marketplace add <repo 本地路径>     # → Installed marketplace root: <repo>
+codex plugin add drogon@drogon-claude-plugin      # → Installed plugin root: ~/.codex/plugins/cache/drogon-claude-plugin/drogon/0.4.0
+```
+
+- **解析基准 = marketplace 根（仓库根）**：`source.path: "./"` 命中仓库根的 `.codex-plugin/plugin.json`，安装成功；`"./"` 前缀形态有效（R1 落点正确）。
+- **安装语义 = 工作区整树快照复制**：实测复制 452 文件 / 3.8 MB，连 `.git/`、`build/`、`dist/`、`.pytest_cache/` 一并入缓存（探针标记文件实验证实非就地引用）。`plugin list` 的 SOURCE 列显示原始仓库路径。
+- **操作注记**：`codex plugin remove <name>` 不带 marketplace 会报 usage 错误；卸载须 `remove drogon@drogon-claude-plugin`。marketplace 条目与 `[plugins."…"]` 配置块独立增删。
+- **登记风险（非缺陷）**：脏工作区会把未提交/忽略产物带进缓存插件。文档建议从干净 checkout 安装。GitHub 型 marketplace 的 ref→缓存路径未测（保持 V6 残余）。
+
+### V7 — wheel 执行位（渠道分析结案，见 §5）
+
+### V8 — `additionalContext` 体积实测（量化完成，降级行为待登录核实）
+
+`hooks/session-start` 直跑测量注入全文：
+
+| 指标 | 值 |
+|---|---|
+| 字符数 | 5146 |
+| CJK 字符 | 1571 |
+| token 估算（CJK≈1/字，ASCII≈4 字符/token） | ≈2465 |
+
+- 估算**恰在 ~2500 阈值边缘**（±2%），主流 BPE 对中文常 >1 token/字 → 实际大概率**已越线**。
+- "溢出降级为磁盘预览"是宿主行为，未登录态无法观察 → **V8 保持待办**（下次任何一次 `codex` 交互会话即可顺手观察）。
+- 缓解预案（仅当证实溢出再动工）：session-start 注入摘要版规则（≤1200 token），全文指向 AGENTS.md 按需读取。
+
+### N4/N5 真机项说明
+
+`.qoder/skills`、`.codebuddy/skills` 通道效果需分别用 Qoder/CodeBuddy 打开装了插件的示例工程观察技能发现列表，属桌面宿主交互验证，本轮 CLI 手段不可达 → 维持"待真机核验"。
