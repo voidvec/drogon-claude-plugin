@@ -465,5 +465,128 @@ def test_yaml_config_scan_end_to_end(tmp_path):
     assert {"CFG.001", "CFG.002"} <= ids, f"YAML 配置漏报: {data}"
 
 
+# ---------------------------------------------------------------------------
+# 回归(第三轮批次④ L6):CPP.007 具名 timeout 重载 / CSP.001 跨行 {{ }}
+# ---------------------------------------------------------------------------
+
+# (rule_id, code) 用例表:正例=必须命中,负例=必须不命中
+L6_POSITIVES = [
+    # timeout 是变量而非数字字面量的同步重载(HttpClient.h:130 同一死锁断言)
+    ("CPP.007", "auto r = client->sendRequest(req, kTimeout);"),
+    # 裸名 timeout/TIMEOUT 也是常见写法,前缀强制会漏(评审补漏)
+    ("CPP.007", "auto r = client->sendRequest(req, timeout);"),
+    ("CPP.007", "auto r = client->sendRequest(req, TIMEOUT);"),
+    # 数字字面量与十六进制支
+    ("CPP.007", "auto r = client->sendRequest(req, 5.0);"),
+    ("CPP.007", "auto r = client->sendRequest(req, 0x1F);"),
+    # Jinja 风格 {{ }} 换行书写,行内正则漏检
+    ("CSP.001", "<div>\n  {{\n    user.name\n  }}\n</div>"),
+]
+L6_NEGATIVES = [
+    # 异步重载(callback 第二参)永远不得被 CPP.007 抓
+    ("CPP.007", "client->sendRequest(req, [this](ReqResult r, const HttpResponsePtr &resp) { cb(r, resp); });"),
+    # 三参异步重载 (req, cb, timeout) 同样不得误报
+    ("CPP.007", "client->sendRequest(req, [this](ReqResult r) { cb(r); }, kTimeout);"),
+    # 正确的 CSP 输出语法跨行不得误报
+    ("CSP.001", "<div>\n  [[\n    user.name\n  ]]\n</div>"),
+]
+
+
+@pytest.mark.parametrize("rule_id,code", L6_POSITIVES, ids=[f"{r}-pos{i}" for i, (r, _) in enumerate(L6_POSITIVES)])
+def test_l6_rules_close_reported_gaps(rule_id, code):
+    """回归(L6):CPP.007 漏 `sendRequest(req, timeoutVar)`;CSP.001 漏跨行 `{{ }}`。"""
+    rule = _rule(rule_id)
+    assert ptu.scan_text(code, [rule]), f"{rule_id}: L6 缺口复发,正例未匹配: {code!r}"
+
+
+@pytest.mark.parametrize("rule_id,code", L6_NEGATIVES, ids=[f"{r}-neg{i}" for i, (r, _) in enumerate(L6_NEGATIVES)])
+def test_l6_fix_keeps_negatives_clean(rule_id, code):
+    """守卫方向:补漏不得把异步重载 / 合法跨行 `[[ ]]` 一并卷入误报。"""
+    rule = _rule(rule_id)
+    hits = [h.rule_id for h in ptu.scan_text(code, [rule])]
+    assert not hits, f"{rule_id}: 修复引入误报 {hits}: {code!r}"
+
+
+# ---------------------------------------------------------------------------
+# 回归(第三轮批次④ L4):--scan 直用模式的项目内符号链接逃逸
+# ---------------------------------------------------------------------------
+
+
+def _mk_symlink(target, link):
+    try:
+        os.symlink(str(target), str(link))
+    except (OSError, NotImplementedError):
+        pytest.skip("需要符号链接权限(Windows 开发者模式/管理员)")
+
+
+def test_escapes_workspace_guard_local(tmp_path):
+    """L4 守卫核心可在本地验证(不依赖符号链接特权):realpath 落在工作区外即逃逸。
+
+    符号链接逃逸最终表现为 open(f) 跟随链接读到工作区外的 realpath,故守卫的
+    判定单元就是'文件真实路径是否在工作区内'。本用例直接撞这层判定:
+    工作区内文件 → 不逃逸;工作区外文件 → 逃逸。CI 上的端到端符号链接用例
+    (test_scan_skips_symlink_pointing_outside_workspace)进一步验证 scan 会跳过它。
+    """
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    inside = ws / "a.cc"
+    inside.write_text("void f() { FILTER_ADD(x); }\n", encoding="utf-8")
+    outside = tmp_path / "b.cc"
+    outside.write_text("void f() { FILTER_ADD(x); }\n", encoding="utf-8")
+    cwd = os.path.realpath(str(ws))
+
+    assert not ptu._escapes_workspace(str(inside), cwd), "工作区内文件被误判为逃逸"
+    assert ptu._escapes_workspace(str(outside), cwd), "工作区外文件未被判为逃逸(守卫失效)"
+
+
+def test_scan_skips_symlink_pointing_outside_workspace(tmp_path):
+    """回归(L4):顶层参数 realpath 预检盖不住**目录内**指向外部的文件符号链接,
+    open() 会跟随链接读项目外内容,绕过'防任意路径读取'护栏。"""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    outside = tmp_path / "outside.cc"
+    outside.write_text("void f() { FILTER_ADD(x); }\n", encoding="utf-8")
+    _mk_symlink(outside, proj / "link.cc")
+
+    old = os.getcwd()
+    os.chdir(proj)
+    try:
+        r = subprocess.run(
+            [sys.executable, str(HOOK), "--scan", "--format", "json", "."],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    finally:
+        os.chdir(old)
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    assert data["total"] == 0, f"L4 复发: 项目外符号链接目标被读取 → {data}"
+
+
+def test_scan_still_reads_symlink_pointing_inside_workspace(tmp_path):
+    """L4 正向对照:修复方向是'出界才跳过',项目内符号链接仍须正常扫描。"""
+    proj = tmp_path / "proj2"
+    (proj / "src").mkdir(parents=True)
+    real = proj / "src" / "bad.cc"
+    real.write_text("void f() { FILTER_ADD(x); }\n", encoding="utf-8")
+    _mk_symlink(real, proj / "link.cc")
+
+    old = os.getcwd()
+    os.chdir(proj)
+    try:
+        r = subprocess.run(
+            [sys.executable, str(HOOK), "--scan", "--format", "json", "."],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    finally:
+        os.chdir(old)
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    # 真身(src/bad.cc)与项目内链接(link.cc)realpath 都在工作区内 → 双双照扫,
+    # 各命中一次 = 2(硬链接本地实证;此前断言 1 会在 ubuntu CI 必红)。
+    assert data["total"] == 2, f"项目内符号链接被误杀(应照扫): {data}"
+    files = {f["file"].replace("\\", "/") for f in data["findings"]}
+    assert files == {"link.cc", "src/bad.cc"}, f"扫描文件集不符: {files}"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))
