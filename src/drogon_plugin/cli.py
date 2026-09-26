@@ -11,8 +11,8 @@ Codex / Cursor / VS Code Copilot / Gemini CLI / Qoder / CodeBuddy / Trae /
   cursor         → .cursor/skills/<skill>/ + .cursor/rules/drogon-plugin.mdc
   copilot|agents → .agents/skills/<skill>/ + AGENTS.md(VS Code 原生发现位置)
   gemini         → GEMINI.md(项目级;技能经 gemini extensions 安装本仓库)
-  qoder          → AGENTS.md(Qoder 官方兼容)
-  codebuddy      → CODEBUDDY.md(项目指令文件)
+  qoder          → .qoder/skills/<skill>/ + AGENTS.md(N4;技能通道待真机核验)
+  codebuddy      → .codebuddy/skills/<skill>/ + CODEBUDDY.md(N5;技能通道待真机核验)
   trae           → .trae/skills/<skill>/ + AGENTS.md(Trae 官方兼容;不投 .mdc,见 R10)
 
 安全承诺:
@@ -158,7 +158,7 @@ def _skill_count_of(skills_dir: Path) -> int:
 
 
 def _bundled_skill_count() -> int:
-    """随包技能数(实枚举)。资产缺失时返回 0,调用方需据此降级。"""
+    """随包技能数(实枚举)。资产缺失时返回 0 —— M4′ 后 0 即"包残缺",判失败不降级。"""
     return _skill_count_of(_find_assets() / "skills")
 
 
@@ -346,7 +346,10 @@ def _strip_marker_section(project: Path, name: str) -> bool:
     p = project / name
     if not p.is_file():
         return False
-    text = p.read_text(encoding="utf-8")
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False  # 读不动/解不动 → 不动它:留着比删坏安全
     if not _MARKER_SECTION_RE.search(text):
         return False
     # 多段标记全部剥离,并清掉可能存在的孤立标记行
@@ -413,13 +416,20 @@ def _print_hints(hosts: list) -> None:
 
 
 def _rollback_install(
-    project: Path, written: list, instruction_files: dict, bundle_touched: bool, err: Exception
+    project: Path,
+    written: list,
+    instruction_files: dict,
+    bundle_touched: bool,
+    bundle_backup: "Path | None",
+    err: Exception,
 ) -> None:
     """回滚一次失败的 install(回归 L5)。
 
     只清**本次**写入:`written` 里的技能目录/规则文件、我们建的 full 指令文件、
     半成品 bundle。用户自有文件不整删 —— 若本次以 marker 段编辑过已有指令文件,
     剥回的只是我们的标记段(与 uninstall 同一条安全路径)。
+    旧 bundle 走改名备份:回滚时原样恢复(评审补漏——此前先 rmtree 旧 bundle,
+    失败即不可回退,而旧安装戳仍宣称 claude/zcode 已装 → verify 半残)。
     """
     for rel in written:
         p = project / rel
@@ -432,6 +442,14 @@ def _rollback_install(
             pass
     if bundle_touched:
         shutil.rmtree(project / _INSTALL_DIR, ignore_errors=True)
+        if bundle_backup is not None and bundle_backup.exists():
+            try:
+                os.replace(bundle_backup, project / _INSTALL_DIR)
+                bundle_backup = None
+            except OSError:
+                pass
+    if bundle_backup is not None and bundle_backup.exists():
+        shutil.rmtree(bundle_backup, ignore_errors=True)
     for name, action in instruction_files.items():
         path = project / name
         try:
@@ -481,16 +499,22 @@ def cmd_install(args) -> int:
 
     installed_hosts = []
     bundle_touched = False
+    bundle_backup: "Path | None" = None
     try:
         for host in hosts:
             conf = HOSTS[host]
             kind = conf["kind"]
 
             if kind == "bundle":
-                bundle_touched = True  # 旧 bundle 此刻已被覆盖/清空(L5 回滚一并移除残缺新 bundle)
+                bundle_touched = True
                 root = project / _INSTALL_DIR
                 if root.exists():
-                    shutil.rmtree(root)
+                    # 评审补漏:旧 bundle 改名备份而非直接 rmtree —— 本次安装
+                    # 半途失败时可原样恢复(成功路径在循环后删备份)。
+                    bundle_backup = root.with_name(f"{root.name}.old-{os.getpid()}")
+                    if bundle_backup.exists():
+                        shutil.rmtree(bundle_backup, ignore_errors=True)
+                    os.replace(root, bundle_backup)
                 count = _copy_assets(src_root, root)
                 (root / _STAMP_V2).write_text(
                     json.dumps(
@@ -553,11 +577,21 @@ def cmd_install(args) -> int:
                     print(f"   [{host}] 规则 → {name}({action})")
 
             installed_hosts.append(host)
+    except KeyboardInterrupt:
+        # Ctrl+C 也是"半途失败":同样回滚,不留孤儿(评审补漏——Exception 不捕中断)。
+        _rollback_install(
+            project, written, instruction_files, bundle_touched, bundle_backup,
+            Exception("用户中断(Ctrl+C)"),
+        )
+        return 130
     except Exception as e:
         # 回归(L5):此前半途异常(磁盘满/权限/文件被占)冒到顶层兜底,退出码虽对,
         # 但前面宿主已落盘的产物无人认领 —— 安装戳未写 → 孤儿文件。必须回滚本次写入。
-        _rollback_install(project, written, instruction_files, bundle_touched, e)
+        _rollback_install(project, written, instruction_files, bundle_touched, bundle_backup, e)
         return 1
+
+    if bundle_backup is not None:
+        shutil.rmtree(bundle_backup, ignore_errors=True)
 
     stamp = _load_stamp(project)
     # 指令文件动作取"最强":一旦 full(文件由我们创建)就不被后装的 marker
@@ -652,8 +686,10 @@ def cmd_verify(args) -> int:
         if not skills_dir.is_dir():
             problems.append("缺少 skills/ 目录")
         elif not _skills_ok(skills_dir):
+            bundled = _bundled_skill_count()
             problems.append(
-                f"技能数 {_skill_count_of(skills_dir)} != 随包 {_bundled_skill_count()}"
+                f"技能数 {_skill_count_of(skills_dir)} != 随包 {bundled}"
+                + ("(包残缺:随包技能枚举为 0,请重装/upgrade 本包)" if not bundled else "")
             )
         for f in _EXPECTED_HOOK_FILES:
             if not (plugin_root / "hooks" / f).is_file():
@@ -801,8 +837,8 @@ def _instruction_has_foreign_content(project: Path, name: str) -> bool:
         return False
     try:
         text = p.read_text(encoding="utf-8")
-    except OSError:
-        return True  # 读不动就当有内容,绝不整删
+    except (OSError, UnicodeDecodeError):
+        return True  # 读不动/解不动(如用户转了编码)就当有内容,绝不整删
     residual = _MARKER_LINE_RE.sub("", _MARKER_SECTION_RE.sub("", text)).strip()
     return bool(residual)
 
@@ -810,11 +846,14 @@ def _instruction_has_foreign_content(project: Path, name: str) -> bool:
 def _drop_full_instruction(project: Path, name: str, removed: list) -> None:
     """卸载 full 归属指令文件:纯插件产物整删;含用户追加内容则只剥标记段并告警。"""
     if _instruction_has_foreign_content(project, name):
-        _strip_marker_section(project, name)
-        removed.append(f"{name}(已剥标记段,保留用户内容)")
+        stripped = _strip_marker_section(project, name)
+        removed.append(
+            f"{name}(已剥标记段,保留用户内容)" if stripped
+            else f"{name}(保留:含自有内容,无可剥标记段或文件不可读)"
+        )
         print(
-            f"   ⚠ {name} 含插件标记段之外的自有内容(疑似用户追加)。\n"
-            f"       已只剥掉本插件标记段并保留文件,未整删;请自行核对该文件剩余内容。"
+            f"   ⚠ {name} 含插件标记段之外的自有内容(疑似用户追加)或不可读。\n"
+            f"       已保留文件未整删;请自行核对该文件剩余内容。"
         )
     else:
         (project / name).unlink()
