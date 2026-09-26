@@ -26,6 +26,10 @@
 
 - **workflow action 全量 SHA 固定**：`ci.yml` / `publish.yml` 的 10 处 `uses:` 从可变 tag/分支引用改为 40 位 commit SHA + 版本注释（checkout v4.4.0 / setup-python v5.6.0 / setup-node v4.4.0 / pypa publish v1.14.2（release/v1 HEAD @2026-09）/ action-gh-release v2.6.2，均经 `commits/<tag>` API 剥取核验）。tag 可被重指向或随仓库所有权转移，未固定的 `uses:` 让持 PyPI/npm 凭证的 publish 作业跑在不可控代码上。新增守卫测试 `tests/test_ci_pinning.py`（未固定即红；SHA 行缺版本注释即红，防升级时无从比对）。主版本刻意不升（checkout v7 / setup-python v7 等为独立变更，另轮评估）。
 
+### Docs — 真机核实回填（V6/V7/V8，第三轮报告 §7 补录）
+
+- V6 证实：Codex 本地 marketplace `source.path:"./"` 以 marketplace 根解析，`plugin add` 走通；安装语义为工作区整树快照复制（脏文件会入缓存，文档建议干净 checkout）。V7 渠道分析结案（ubuntu CI + git 100755 + copy2 保位）。V8 量化：session-start 注入 5146 字符/1571 CJK ≈2465 token，恰在宿主 ~2500 阈值边缘，降级行为待登录会话顺手观察，N4/N5 桌面通道维持"待真机核验"。
+
 ## [0.4.0] - 2026-09-24
 
 仓库专业化改造。诊断报告见 `docs/PROFESSIONALIZATION-REVIEW.md`,技能作者手册见 `docs/SKILL-AUTHORING.md`。
