@@ -87,7 +87,7 @@ CPP_RULES: List[Rule] = [
     # 只放行"名字含 timeout"的标识符,避免把 sendRequest(req, cb) 的回调变量误报。
     Rule("CPP.007", "error",
          r"->\s*sendRequest\s*\(\s*[^,)]+(?:,\s*(?:[\d.]+|0[xX][\da-fA-F]+"
-         r"|[A-Za-z_]\w*(?:[Tt]imeout|[Tt]IMEOUT)\w*)\s*)?\)",
+         r"|\w*(?:[Tt]imeout|TIMEOUT)\w*)\s*)?\)",
          "HttpClient synchronous sendRequest(req [, timeout]) has a deadlock assert and must NOT be "
          "called in the event-loop thread / handler. Use the async overload sendRequest(req, callback) "
          "or sendRequestCoro() (HttpClient.h:133).",

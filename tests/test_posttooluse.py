@@ -469,33 +469,42 @@ def test_yaml_config_scan_end_to_end(tmp_path):
 # 回归(第三轮批次④ L6):CPP.007 具名 timeout 重载 / CSP.001 跨行 {{ }}
 # ---------------------------------------------------------------------------
 
-L6_POSITIVES = {
+# (rule_id, code) 用例表:正例=必须命中,负例=必须不命中
+L6_POSITIVES = [
     # timeout 是变量而非数字字面量的同步重载(HttpClient.h:130 同一死锁断言)
-    "CPP.007": "auto r = client->sendRequest(req, kTimeout);",
+    ("CPP.007", "auto r = client->sendRequest(req, kTimeout);"),
+    # 裸名 timeout/TIMEOUT 也是常见写法,前缀强制会漏(评审补漏)
+    ("CPP.007", "auto r = client->sendRequest(req, timeout);"),
+    ("CPP.007", "auto r = client->sendRequest(req, TIMEOUT);"),
+    # 数字字面量与十六进制支
+    ("CPP.007", "auto r = client->sendRequest(req, 5.0);"),
+    ("CPP.007", "auto r = client->sendRequest(req, 0x1F);"),
     # Jinja 风格 {{ }} 换行书写,行内正则漏检
-    "CSP.001": "<div>\n  {{\n    user.name\n  }}\n</div>",
-}
-L6_NEGATIVES = {
+    ("CSP.001", "<div>\n  {{\n    user.name\n  }}\n</div>"),
+]
+L6_NEGATIVES = [
     # 异步重载(callback 第二参)永远不得被 CPP.007 抓
-    "CPP.007": "client->sendRequest(req, [this](ReqResult r, const HttpResponsePtr &resp) { cb(r, resp); });",
+    ("CPP.007", "client->sendRequest(req, [this](ReqResult r, const HttpResponsePtr &resp) { cb(r, resp); });"),
+    # 三参异步重载 (req, cb, timeout) 同样不得误报
+    ("CPP.007", "client->sendRequest(req, [this](ReqResult r) { cb(r); }, kTimeout);"),
     # 正确的 CSP 输出语法跨行不得误报
-    "CSP.001": "<div>\n  [[\n    user.name\n  ]]\n</div>",
-}
+    ("CSP.001", "<div>\n  [[\n    user.name\n  ]]\n</div>"),
+]
 
 
-@pytest.mark.parametrize("rule_id", sorted(L6_POSITIVES))
-def test_l6_rules_close_reported_gaps(rule_id):
+@pytest.mark.parametrize("rule_id,code", L6_POSITIVES, ids=[f"{r}-pos{i}" for i, (r, _) in enumerate(L6_POSITIVES)])
+def test_l6_rules_close_reported_gaps(rule_id, code):
     """回归(L6):CPP.007 漏 `sendRequest(req, timeoutVar)`;CSP.001 漏跨行 `{{ }}`。"""
     rule = _rule(rule_id)
-    assert ptu.scan_text(L6_POSITIVES[rule_id], [rule]), f"{rule_id}: L6 缺口复发,正例未匹配"
+    assert ptu.scan_text(code, [rule]), f"{rule_id}: L6 缺口复发,正例未匹配: {code!r}"
 
 
-@pytest.mark.parametrize("rule_id", sorted(L6_NEGATIVES))
-def test_l6_fix_keeps_negatives_clean(rule_id):
+@pytest.mark.parametrize("rule_id,code", L6_NEGATIVES, ids=[f"{r}-neg{i}" for i, (r, _) in enumerate(L6_NEGATIVES)])
+def test_l6_fix_keeps_negatives_clean(rule_id, code):
     """守卫方向:补漏不得把异步重载 / 合法跨行 `[[ ]]` 一并卷入误报。"""
     rule = _rule(rule_id)
-    hits = [h.rule_id for h in ptu.scan_text(L6_NEGATIVES[rule_id], [rule])]
-    assert not hits, f"{rule_id}: 修复引入误报 {hits}"
+    hits = [h.rule_id for h in ptu.scan_text(code, [rule])]
+    assert not hits, f"{rule_id}: 修复引入误报 {hits}: {code!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -572,7 +581,11 @@ def test_scan_still_reads_symlink_pointing_inside_workspace(tmp_path):
         os.chdir(old)
     assert r.returncode == 0, r.stderr
     data = json.loads(r.stdout)
-    assert data["total"] == 1, f"项目内符号链接被误杀(应照扫): {data}"
+    # 真身(src/bad.cc)与项目内链接(link.cc)realpath 都在工作区内 → 双双照扫,
+    # 各命中一次 = 2(硬链接本地实证;此前断言 1 会在 ubuntu CI 必红)。
+    assert data["total"] == 2, f"项目内符号链接被误杀(应照扫): {data}"
+    files = {f["file"].replace("\\", "/") for f in data["findings"]}
+    assert files == {"link.cc", "src/bad.cc"}, f"扫描文件集不符: {files}"
 
 
 if __name__ == "__main__":
