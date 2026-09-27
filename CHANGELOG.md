@@ -10,6 +10,16 @@
 
 - `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md`：对 v0.4.0 后 10 提交增量做四轴对抗评审。上轮声称项全部复核成立；新增 F1–F15（高危 4：钩子正则 ReDoS 实测 42s/62s、回滚三态失败分支可毁在用 bundle/备份/用户技能内容；中 6；低 5）。V7 执行位结论被平台轴动摇，转 V9 走 ubuntu CI 实证。建议整改序见报告 §3，待确认后按批 TDD 开工。
 
+### Fixed — 第四轮批次①（回滚失败分支 + 正则 ReDoS，报告 F1–F4）
+
+登记依据见 `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md`；四条均为第三轮批次④新代码自身引入，逐条先见 RED 再修。
+
+- **钩子正则 ReDoS**（F1）：L6 的 `[^,)]+` / `[^}]|\}(?!\})` 内容类放行同类括号，病态文件呈 O(n²)——实测 280KB `->sendRequest(` 串 42.1s、100KB 连排 `{{` 61.5s，每次 Edit 的钩子与 `--scan` 都会被卡死。内容类改为排除 `(`/`{`（锚点回溯被同类括号截断为 O(锚距)），新增 1s 预算计时守卫；L6 正负例零回归。
+- **rename 失败反毁在用 bundle**（F2）：`bundle_touched` 曾在改名备份之前置位，Windows 下另一进程 cwd 位于 `.drogon-plugin/`（WinError 32 常态）时回滚把根本没动过的旧 bundle 整个删掉。现在改名成功才记账，改名失败 root 原封不动。
+- **恢复失败销毁唯一备份**（F3）：回滚收尾的无条件清理恰好只在"恢复失败"路径到达——把最后一份旧 bundle 也删了。现在恢复失败保留备份并打印路径告警；bundle 与技能目录统一走 `renames` 还原清单，成功才删备份。
+- **技能换页失败丢用户内容 + 半成品孤儿**（F4）：同名 `drogon-*` 目录此前先 `rmtree` 无备份、copytree 半途失败的目录不在回滚清单。现在 dest 先记账再落盘（半成品可清）、旧目录改名备份（失败还原、成功才删），整体成功前备份绝不销毁。
+- 实现注记：bundle 根只进失败期清理清单，不入安装戳 `files`（账本语义不变，有测试锁定）。
+
 ### Fixed — 第三轮评审批次④（npm 互操作 / 钩子规则 / CLI 健壮性）
 
 登记依据见 `docs/ROUND3-SPEC-HOST-PLATFORM-CORRECTNESS-REVIEW.md` §6 批次④（L1–L6、M4′、N3–N5）。

@@ -419,17 +419,16 @@ def _rollback_install(
     project: Path,
     written: list,
     instruction_files: dict,
-    bundle_touched: bool,
-    bundle_backup: "Path | None",
+    renames: "list",
     err: Exception,
 ) -> None:
-    """回滚一次失败的 install(回归 L5)。
+    """回滚一次失败的 install(回归 L5 / 第四轮 F2/F3/F4)。
 
-    只清**本次**写入:`written` 里的技能目录/规则文件、我们建的 full 指令文件、
-    半成品 bundle。用户自有文件不整删 —— 若本次以 marker 段编辑过已有指令文件,
-    剥回的只是我们的标记段(与 uninstall 同一条安全路径)。
-    旧 bundle 走改名备份:回滚时原样恢复(评审补漏——此前先 rmtree 旧 bundle,
-    失败即不可回退,而旧安装戳仍宣称 claude/zcode 已装 → verify 半残)。
+    只清**本次**写入:`written` 里的技能目录(含半成品)/规则文件/bundle 根、
+    我们建的 full 指令文件。用户自有文件不整删 —— 若本次以 marker 段编辑过已有
+    指令文件,剥回的只是我们的标记段(与 uninstall 同一条安全路径)。
+    本次改名备份过的旧状态(bundle / 同名技能目录)按 `renames` 逐一还原;
+    **还原失败时保留备份并打印路径**(F3)——最后一份旧数据绝不随回滚销毁。
     """
     for rel in written:
         p = project / rel
@@ -440,16 +439,23 @@ def _rollback_install(
                 p.unlink(missing_ok=True)
         except OSError:
             pass
-    if bundle_touched:
-        shutil.rmtree(project / _INSTALL_DIR, ignore_errors=True)
-        if bundle_backup is not None and bundle_backup.exists():
-            try:
-                os.replace(bundle_backup, project / _INSTALL_DIR)
-                bundle_backup = None
-            except OSError:
-                pass
-    if bundle_backup is not None and bundle_backup.exists():
-        shutil.rmtree(bundle_backup, ignore_errors=True)
+    for backup, final in renames:
+        try:
+            if not backup.exists():
+                continue
+            if final.exists():
+                if final.is_dir():
+                    shutil.rmtree(final, ignore_errors=True)
+                else:
+                    final.unlink(missing_ok=True)
+            os.replace(backup, final)
+        except OSError:
+            print(
+                f"⚠ 回滚时无法恢复 {final}(旧目录被占用?)。\n"
+                f"   旧内容完整保留在备份:{backup}\n"
+                f"   请关闭占用该目录的程序后手动移回,或重新运行 install。",
+                file=sys.stderr,
+            )
     for name, action in instruction_files.items():
         path = project / name
         try:
@@ -498,23 +504,25 @@ def cmd_install(args) -> int:
     )
 
     installed_hosts = []
-    bundle_touched = False
-    bundle_backup: "Path | None" = None
+    renames: "list" = []  # [(backup_path, final_path)] —— 回滚时要还原的旧状态
+    rollback_extra: "list" = []  # 仅失败时清理(不入安装戳 files)
     try:
         for host in hosts:
             conf = HOSTS[host]
             kind = conf["kind"]
 
             if kind == "bundle":
-                bundle_touched = True
                 root = project / _INSTALL_DIR
                 if root.exists():
-                    # 评审补漏:旧 bundle 改名备份而非直接 rmtree —— 本次安装
-                    # 半途失败时可原样恢复(成功路径在循环后删备份)。
-                    bundle_backup = root.with_name(f"{root.name}.old-{os.getpid()}")
-                    if bundle_backup.exists():
-                        shutil.rmtree(bundle_backup, ignore_errors=True)
-                    os.replace(root, bundle_backup)
+                    # 旧 bundle 改名备份;改名失败(Windows 占用是常态,F2)必须在
+                    # 记账之前抛出——root 原封未动,回滚无权删除在用 bundle。
+                    backup = root.with_name(f"{root.name}.old-{os.getpid()}")
+                    if backup.exists():
+                        shutil.rmtree(backup, ignore_errors=True)
+                    os.replace(root, backup)
+                    renames.append((backup, root))
+                # 半成品 root 也纳入回滚清理(F4 同源:先记账再落盘)
+                rollback_extra.append(str(root.relative_to(project)))
                 count = _copy_assets(src_root, root)
                 (root / _STAMP_V2).write_text(
                     json.dumps(
@@ -541,11 +549,20 @@ def cmd_install(args) -> int:
                     if not d.is_dir():
                         continue
                     dest = dest_base / d.name
+                    # 第四轮 F4:先记账——copytree 半途失败的半成品也在回滚清单里
+                    rel = str(dest.relative_to(project))
+                    if rel not in written:
+                        written.append(rel)
                     if dest.exists():
-                        shutil.rmtree(dest)
+                        # 同名目录(可能含用户手改内容)改名备份,整体成功后才删;
+                        # 失败即随回滚还原——换页失败不等于数据丢失。
+                        bak = dest.with_name(f"{d.name}.old-{os.getpid()}")
+                        if bak.exists():
+                            shutil.rmtree(bak, ignore_errors=True)
+                        os.replace(dest, bak)
+                        renames.append((bak, dest))
                     shutil.copytree(d, dest)
                     n += 1
-                    written.append(str(dest.relative_to(project)))
                 print(f"   [{host}] 技能 {n} 个 → {conf['skills_dir']}")
 
             if "rulefile" in kind:
@@ -580,18 +597,19 @@ def cmd_install(args) -> int:
     except KeyboardInterrupt:
         # Ctrl+C 也是"半途失败":同样回滚,不留孤儿(评审补漏——Exception 不捕中断)。
         _rollback_install(
-            project, written, instruction_files, bundle_touched, bundle_backup,
+            project, written + rollback_extra, instruction_files, renames,
             Exception("用户中断(Ctrl+C)"),
         )
         return 130
     except Exception as e:
         # 回归(L5):此前半途异常(磁盘满/权限/文件被占)冒到顶层兜底,退出码虽对,
         # 但前面宿主已落盘的产物无人认领 —— 安装戳未写 → 孤儿文件。必须回滚本次写入。
-        _rollback_install(project, written, instruction_files, bundle_touched, bundle_backup, e)
+        _rollback_install(project, written + rollback_extra, instruction_files, renames, e)
         return 1
 
-    if bundle_backup is not None:
-        shutil.rmtree(bundle_backup, ignore_errors=True)
+    # 整体成功:此时才销毁改名备份的旧状态(bundle + 被换页的技能目录)
+    for backup, _final in renames:
+        shutil.rmtree(backup, ignore_errors=True)
 
     stamp = _load_stamp(project)
     # 指令文件动作取"最强":一旦 full(文件由我们创建)就不被后装的 marker

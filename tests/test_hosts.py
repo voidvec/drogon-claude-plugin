@@ -622,6 +622,100 @@ def test_install_keyboard_interrupt_rolls_back(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 回归(第四轮 F2/F3/F4):改名备份的失败分支必须"保旧",不得二次摧毁
+# ---------------------------------------------------------------------------
+
+
+def test_bundle_rename_failure_keeps_live_bundle(tmp_path, monkeypatch):
+    """F2:备份改名这一步失败(Windows 下另一进程 cwd 在 bundle 内是常态,WinError 32)
+    ——root 根本没动过,回滚不得按"已触碰"把它删掉(修复前 bundle_touched 先行置位)。"""
+    p = _make_project(tmp_path)
+    bundle = p / ".drogon-plugin"
+    bundle.mkdir()
+    (bundle / "SENTINEL.txt").write_text("old", encoding="utf-8")
+
+    def hostile_replace(a, b, **kw):
+        raise OSError(32, "注入:目标被占用,改名失败")
+
+    monkeypatch.setattr(cli_mod.os, "replace", hostile_replace)
+    assert _run_cli("install", "--target", str(p), "--host", "claude") == 1
+    assert (bundle / "SENTINEL.txt").is_file(), "F2 复发:rename 失败后回滚把在用的旧 bundle 删了"
+    assert list(p.glob(".drogon-plugin.old-*")) == [], "不该有备份残留"
+
+
+def test_bundle_restore_failure_keeps_backup(tmp_path, monkeypatch, capsys):
+    """F3:回滚"恢复旧 bundle"这步再失败时,唯一备份必须原地保留并打出路径
+    ——修复前收尾的无条件清理恰好只在恢复失败时到达,把最后的备份也删了。"""
+    import os as _os
+    import shutil as _sh
+
+    p = _make_project(tmp_path)
+    bundle = p / ".drogon-plugin"
+    bundle.mkdir()
+    (bundle / "SENTINEL.txt").write_text("old", encoding="utf-8")
+    real_replace = _os.replace
+
+    def flaky_replace(a, b, **kw):
+        if Path(b).name == ".drogon-plugin":  # 放行 root→backup,注入 backup→root 失败
+            raise OSError(5, "注入:恢复失败")
+        return real_replace(a, b, **kw)
+
+    real_copy2 = _sh.copy2
+    state = {"n": 0}
+
+    def flaky_copy2(src, dst, *a, **kw):
+        state["n"] += 1
+        if state["n"] >= 5:
+            raise OSError("注入:磁盘写失败")
+        return real_copy2(src, dst, *a, **kw)
+
+    monkeypatch.setattr(cli_mod.os, "replace", flaky_replace)
+    monkeypatch.setattr(_sh, "copy2", flaky_copy2)
+    rc = _run_cli("install", "--target", str(p), "--host", "claude")
+    assert rc == 1
+    backups = list(p.glob(".drogon-plugin.old-*"))
+    assert backups, "F3 复发:恢复失败后备份也被清掉——双目录皆失,戳还说谎"
+    assert (backups[0] / "SENTINEL.txt").is_file(), "保留下来的备份内容不完整"
+    err = capsys.readouterr().err
+    assert "old-" in err, f"恢复失败须打出备份路径供用户回退: {err}"
+
+
+def test_skill_swap_failure_restores_user_content(tmp_path, monkeypatch):
+    """F4:同名 drogon-* 目录先 rmtree 再 copytree——中途失败时①用户同名目录内容
+    无备份丢失、②半成品 dest 不在 written 变孤儿。修复:dest 先记账,旧目录改名备份,
+    回滚删半成品并还原用户内容,成功后才删备份。"""
+    import shutil as _sh
+
+    p = _make_project(tmp_path)
+    mine = p / ".agents" / "skills" / "drogon-create-controller"
+    mine.mkdir(parents=True)
+    (mine / "MY_OWN.txt").write_text("user", encoding="utf-8")
+
+    real_copytree = _sh.copytree
+    state = {"n": 0}
+
+    def flaky(src, dst, *a, **kw):
+        s = Path(src)
+        if s.name.startswith("drogon-") and s.parent.name == "skills":
+            state["n"] += 1
+            if state["n"] >= 3:  # 第 1 个换页成功、第 2 个新落、第 3 个半路炸
+                d = Path(dst)
+                d.mkdir(parents=True, exist_ok=True)
+                (d / "PARTIAL.md").write_text("半成品", encoding="utf-8")
+                raise OSError("注入:拷贝中途失败")
+        return real_copytree(src, dst, *a, **kw)
+
+    monkeypatch.setattr(_sh, "copytree", flaky)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 1
+    assert (mine / "MY_OWN.txt").is_file(), "F4 复发:换页失败,用户同名技能目录内容丢失"
+    base = p / ".agents" / "skills"
+    dirs = sorted(d.name for d in base.iterdir()) if base.is_dir() else []
+    assert dirs == ["drogon-create-controller"], f"半成品/成功项孤儿未清: {dirs}"
+    assert list(p.glob("**/*.old-*")) == [], "回滚后不得残留备份目录"
+    assert not (p / ".drogon-plugin-install.json").exists(), "失败安装不得更新安装戳"
+
+
+# ---------------------------------------------------------------------------
 # 回归(第三轮批次④ N4/N5):qoder / codebuddy 的官方技能发现通道
 # ---------------------------------------------------------------------------
 
