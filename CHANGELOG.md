@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Docs — 第四轮评审（诊断报告，未整改）
+
+- `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md`：对 v0.4.0 后 10 提交增量做四轴对抗评审。上轮声称项全部复核成立；新增 F1–F15（高危 4：钩子正则 ReDoS 实测 42s/62s、回滚三态失败分支可毁在用 bundle/备份/用户技能内容；中 6；低 5）。V7 执行位结论被平台轴动摇，转 V9 走 ubuntu CI 实证。建议整改序见报告 §3，待确认后按批 TDD 开工。
+
 ### Fixed — 第三轮评审批次④（npm 互操作 / 钩子规则 / CLI 健壮性）
 
 登记依据见 `docs/ROUND3-SPEC-HOST-PLATFORM-CORRECTNESS-REVIEW.md` §6 批次④（L1–L6、M4′、N3–N5）。
