@@ -348,7 +348,9 @@ def test_npm_uninstall_keeps_mixed_host_v3_stamp(tmp_path):
         capture_output=True, text=True, encoding="utf-8",
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    assert not (p / ".drogon-plugin").exists(), "npm 应清掉自己管的 bundle"
+    # F5 语义变更:混合账本下 bundle 也可能由 PyPI CLI 写入,npm 无权单方面删——
+    # 此前"先删 bundle 后判账本"留下 bundle 缺失但戳宣称 claude 已装的互相说谎态。
+    assert (p / ".drogon-plugin").is_dir(), "F5 复发:混合宿主项目的 bundle 被 npm 单方面删掉"
     assert v3.is_file(), "混合宿主戳被误删:npm 只应清除纯 bundle(claude/zcode)安装"
     assert json.loads(v3.read_text(encoding="utf-8"))["hosts"] == hosts_before, (
         "保留的戳内容被改写(账本必须原样)"
@@ -357,6 +359,26 @@ def test_npm_uninstall_keeps_mixed_host_v3_stamp(tmp_path):
         "agents 宿主的根指令文件应原样保留"
     )
     assert "drogon-claude-plugin uninstall" in (r.stdout + r.stderr), "应提示用 PyPI CLI 收尾"
+
+
+@pytest.mark.skipif(_node() is None, reason="node not available")
+def test_npm_uninstall_corrupt_stamp_keeps_everything(tmp_path):
+    """F5 正向对照:损坏的 v3 戳按混合处理——bundle 与戳都原样保留,只告警。"""
+    import shutil as _sh
+    import subprocess
+
+    p = tmp_path / "broken-stamp"
+    p.mkdir()
+    assert _run_cli("install", "--target", str(p), "--host", "claude") == 0
+    (p / ".drogon-plugin-install.json").write_text("{ 损坏", encoding="utf-8")
+
+    r = subprocess.run(
+        [_node(), str(REPO_ROOT / "npm" / "bin" / "cli.js"), "uninstall", "--target", str(p)],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (p / ".drogon-plugin").is_dir(), "戳不可读时不得删 bundle(无法证明是纯 bundle 安装)"
+    assert (p / ".drogon-plugin-install.json").is_file(), "损坏戳也应保留待人工/PyPI CLI 处置"
 
 
 # ---------------------------------------------------------------------------
@@ -1022,6 +1044,28 @@ def test_upgrade_only_repairs_installed_hosts(tmp_path):
     assert sorted(stamp["hosts"]) == ["cursor", "gemini"]
 
 
+@pytest.mark.skipif(_node() is None, reason="node not available")
+def test_py_upgrade_of_npm_installed_project_stays_in_bundle(tmp_path):
+    """F6:npm 装的项目只有 bundle(v2 布局)无 v3 戳,py upgrade 曾退化为
+    ALL_HOSTS 全量安装,凭空落下 8 家宿主产物。修复:检出 v2 布局 → 收敛 claude,zcode。"""
+    import subprocess
+
+    p = tmp_path / "npmproj"
+    p.mkdir()
+    r = subprocess.run(
+        [_node(), str(REPO_ROOT / "npm" / "bin" / "cli.js"), "install", "--target", str(p)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (p / ".drogon-plugin").is_dir(), "前提:npm 已落 bundle"
+
+    assert _run_cli("upgrade", "--target", str(p)) == 0
+    assert (p / ".drogon-plugin" / ".claude-plugin" / "plugin.json").is_file()
+    for stray in (".cursor", ".agents", ".qoder", ".codebuddy", ".trae",
+                  "AGENTS.md", "GEMINI.md", "CODEBUDDY.md"):
+        assert not (p / stray).exists(), f"F6 复发:upgrade 越界落下 {stray}"
+
+
 def test_upgrade_never_forces_marker_into_user_instruction_files(tmp_path):
     """用户自有 AGENTS.md:upgrade 默认(不带 --force-agents)必须一字不动。"""
     p = _make_project(tmp_path, with_user_agents=True)
@@ -1115,6 +1159,47 @@ def test_codex_hint_names_real_subcommand_add_not_install():
     for name in ("README.md", "README.zh-CN.md"):
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         assert "codex plugin install" not in text, f"{name} 仍在教不存在的 `codex plugin install`"
+
+
+# ---------------------------------------------------------------------------
+# 回归(第四轮 F7):非 UTF-8 用户文件的三条泄漏路径
+# (上轮只修了卸载剥段;verify/install/legacy 三条路径仍漏 UnicodeDecodeError)
+# ---------------------------------------------------------------------------
+
+_BAD_UTF8 = b"\xff\xfe" + "项目规则".encode("gbk", errors="replace")
+
+
+def test_verify_survives_undecodable_instruction_file(tmp_path, capsys):
+    """F7-①:_host_artifact_ok 只捕 OSError → GBK 化的 AGENTS.md 让 verify 直接 traceback。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    (p / "AGENTS.md").write_bytes(_BAD_UTF8)
+    capsys.readouterr()
+    rc = _run_cli("verify", "--target", str(p))  # 修复前:UnicodeDecodeError 冒到顶层
+    assert rc in (0, 1)
+    assert "agents—" in capsys.readouterr().out, "不可读宿主须显示为 —(不假装通过、不崩溃)"
+
+
+def test_install_skips_undecodable_instruction_file(tmp_path, capsys):
+    """F7-②:_write_instruction_file 裸 read_text → 一个坏字节让整批多宿主安装失败。
+    解不动 = 用户自有文件:skipped + 原字节 + 告警。"""
+    p = _make_project(tmp_path)
+    (p / "AGENTS.md").write_bytes(_BAD_UTF8)
+    rc = _run_cli("install", "--target", str(p), "--host", "agents")
+    assert rc == 0, "F7 复发:不可解码文件拖死整个安装"
+    assert (p / "AGENTS.md").read_bytes() == _BAD_UTF8, "原字节必须一字不动"
+    assert "⚠" in capsys.readouterr().out, "skipped 需告警"
+
+
+def test_remove_legacy_layout_survives_undecodable_claude_md(tmp_path):
+    """F7-③:_remove_legacy_layout 的 CLAUDE.md 首行签名判定只捕 OSError →
+    旧项目卸载遇 GBK CLAUDE.md 崩溃。读不动 → 按非插件文件保留。"""
+    p = _make_project(tmp_path)
+    (p / "CLAUDE.md").write_bytes(_BAD_UTF8)
+    (p / ".drogon-claude-plugin-installed.json").write_text("{}", encoding="utf-8")
+    removed, skipped = cli_mod._remove_legacy_layout(p)
+    assert (p / "CLAUDE.md").read_bytes() == _BAD_UTF8, "读不动的 CLAUDE.md 不得被删/损坏"
+    assert any("CLAUDE.md" in s for s in skipped), f"应记为保留: skipped={skipped}"
 
 
 if __name__ == "__main__":

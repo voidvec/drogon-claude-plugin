@@ -452,7 +452,34 @@ function cmdUninstall(args) {
   const project = resolveProjectDir(args)
   const removed = []
 
+  // 回归(L1/第四轮 F5):先读 PyPI v3 戳判定,再决定删什么。
+  // 旧顺序"先删 bundle 后判账本"会把混合安装(如 claude+agents)的 bundle 删掉,
+  // 留下 bundle 缺失但戳宣称 claude/zcode 已装的互相说谎状态。
+  // 判定:无 v3 戳(npm 自装自卸)或 hosts ⊆ {claude,zcode}(纯 bundle)→ 全清;
+  //       混合/损坏戳 → bundle、legacy、戳一概不动,提示用 PyPI CLI 收尾。
   const root = installRootOf(project)
+  const v3 = path.join(project, PY_V3_STAMP)
+  const hasV3 = fs.existsSync(v3)
+  let hosts = null
+  if (hasV3) {
+    try {
+      const data = JSON.parse(fs.readFileSync(v3, 'utf-8'))
+      if (Array.isArray(data.hosts)) hosts = data.hosts
+    } catch {
+      /* 损坏戳按混合处理,不盲目删除 */
+    }
+  }
+  const pureBundle =
+    !hasV3 ||
+    (hosts !== null && hosts.length > 0 && hosts.every((h) => h === 'claude' || h === 'zcode'))
+
+  if (!pureBundle) {
+    console.warn(`⚠️  ${PY_V3_STAMP} 记录的宿主为 ${JSON.stringify(hosts)}(混合或不可读)。`)
+    console.warn('    bundle 与安装戳均未改动;请用 pipx 安装的 drogon-claude-plugin uninstall 完成卸载。')
+    console.log(`ℹ️   未在 ${project} 移除任何资产(交由 PyPI CLI)`)
+    return 0
+  }
+
   if (fs.existsSync(root)) {
     fs.rmSync(root, { recursive: true, force: true })
     removed.push(INSTALL_DIR)
@@ -461,27 +488,9 @@ function cmdUninstall(args) {
   const legacy = removeLegacyLayout(project)
   removed.push(...legacy.removed)
 
-  // 回归(L1):PyPI CLI 在项目根写 v3 戳;npm uninstall 若不识别则永久残留。
-  // hosts ⊆ {claude,zcode}(纯 bundle 安装)→ 一并清除;
-  // 混合宿主/戳损坏 → 保留记录并提示用 PyPI CLI 收尾(它才管理根指令文件)。
-  const v3 = path.join(project, PY_V3_STAMP)
-  if (fs.existsSync(v3)) {
-    let hosts = null
-    try {
-      const data = JSON.parse(fs.readFileSync(v3, 'utf-8'))
-      if (Array.isArray(data.hosts)) hosts = data.hosts
-    } catch {
-      /* 损坏戳按混合处理,不盲目删除 */
-    }
-    const pureBundle = hosts !== null && hosts.length > 0 &&
-      hosts.every((h) => h === 'claude' || h === 'zcode')
-    if (pureBundle) {
-      fs.rmSync(v3, { force: true })
-      removed.push(PY_V3_STAMP)
-    } else {
-      console.warn(`⚠️  ${PY_V3_STAMP} 记录的宿主为 ${JSON.stringify(hosts)}(混合或不可读),已保留;`)
-      console.warn('    请用 pipx 安装的 drogon-claude-plugin uninstall 完成其余宿主的卸载。')
-    }
+  if (hasV3) {
+    fs.rmSync(v3, { force: true })
+    removed.push(PY_V3_STAMP)
   }
 
   if (removed.length) {
