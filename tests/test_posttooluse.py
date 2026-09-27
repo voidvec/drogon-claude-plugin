@@ -508,6 +508,34 @@ def test_l6_fix_keeps_negatives_clean(rule_id, code):
 
 
 # ---------------------------------------------------------------------------
+# 回归(第四轮 F1):L6 新正则病态输入二次回溯(ReDoS)
+# ---------------------------------------------------------------------------
+
+PATHOLOGICAL = [
+    # 280KB 无闭合括号的锚点串:主代理实测旧正则 42.1s
+    ("CPP.007", "->sendRequest(" * 20000),
+    # 100KB 连排 `{{`:旧正则 61.5s
+    ("CSP.001", "{{" * 50000),
+]
+
+
+@pytest.mark.parametrize("rule_id,evil", PATHOLOGICAL, ids=[f"{r}-redos" for r, _ in PATHOLOGICAL])
+def test_regexes_survive_pathological_input(rule_id, evil):
+    """第四轮 F1:钩子在每次 Edit 与 --scan/CI 里跑,病态文件不得把匹配拖成秒级。
+
+    旧形态 `[^)]+` / `[^}]|(?!})` 放行同类括号,每个锚点位 O(n) 回溯 → O(n²)。
+    上界化(内容类同时排除 `(`/`{`)后每锚点 O(锚距)。"""
+    import time
+
+    rule = _rule(rule_id)
+    t0 = time.monotonic()
+    hits = [h.rule_id for h in ptu.scan_text(evil, [rule])]
+    dt = time.monotonic() - t0
+    assert not hits, f"{rule_id}: 病态输入误报 {hits}"
+    assert dt < 1.0, f"{rule_id} ReDoS 复发: {dt:.1f}s (预算 1s)"
+
+
+# ---------------------------------------------------------------------------
 # 回归(第三轮批次④ L4):--scan 直用模式的项目内符号链接逃逸
 # ---------------------------------------------------------------------------
 

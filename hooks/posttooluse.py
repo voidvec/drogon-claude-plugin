@@ -86,7 +86,7 @@ CPP_RULES: List[Rule] = [
     # 回归(L6):timeout 实参常是具名变量(kTimeout/req_timeout),不止数字字面量;
     # 只放行"名字含 timeout"的标识符,避免把 sendRequest(req, cb) 的回调变量误报。
     Rule("CPP.007", "error",
-         r"->\s*sendRequest\s*\(\s*[^,)]+(?:,\s*(?:[\d.]+|0[xX][\da-fA-F]+"
+         r"->\s*sendRequest\s*\(\s*[^,()]+(?:,\s*(?:[\d.]+|0[xX][\da-fA-F]+"
          r"|\w*(?:[Tt]imeout|TIMEOUT)\w*)\s*)?\)",
          "HttpClient synchronous sendRequest(req [, timeout]) has a deadlock assert and must NOT be "
          "called in the event-loop thread / handler. Use the async overload sendRequest(req, callback) "
@@ -115,10 +115,10 @@ CPP_RULES: List[Rule] = [
 # rules opt into re.IGNORECASE (matching the comment intent that v0.3.x only
 # documented but never implemented).
 CSP_RULES: List[Rule] = [
-    # 回归(L6):`{{` 与 `}}` 分行书写的 Jinja 风格输出同样非法——
-    # 内容段用"非 `}}` 任意字符(含换行)"的受约束类跨行匹配,
-    # 不用 DOTALL+贪婪(会从首个 `{{` 一口吞到末个 `}}`,放大误报面)。
-    Rule("CSP.001", "error", r"\{\{(?:[^}]|\}(?!\}))*\}\}",
+    # 回归(L6):`{{` 与 `}}` 分行书写的 Jinja 风格输出同样非法——内容类跨行匹配。
+    # 回归(第四轮 F1/ReDoS):内容类排除 `{`,锚点回溯被下一个 `{{` 截断为 O(锚距);
+    # 旧 `[^}]|\}(?!\})` 形态放行 `{`,连排 `{{` 病态输入实测 61.5s。
+    Rule("CSP.001", "error", r"\{\{[^{]*\}\}",
          "{{ }} is Jinja2/Mustache syntax, not supported by drogon CSP. Use [[ key ]] for inline output.",
          "drogon-gen-csp-view", re.IGNORECASE),
     Rule("CSP.002", "error", r"<%raw%>|<\/%raw%>",
