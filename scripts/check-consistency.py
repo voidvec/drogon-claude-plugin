@@ -109,6 +109,31 @@ def _skill_table_rows(rel: str) -> "list[str]":
     return [line for line in read(rel).splitlines() if SKILL_TABLE_ROW.match(line)]
 
 
+HOST_MATRIX_ROW = re.compile(r"^\|\s*\*\*(.+?)\*\*\s*\|(.*)$")
+BACKTICK_TOKEN = re.compile(r"`([^`]+)`")
+
+
+def _host_matrix_rows(rel: str) -> "dict[str, str]":
+    """取文件里**第一个**粗体首列表格(即宿主矩阵)→ {宿主名: 行内容}。
+    只取第一张表,避免把后文"产物结构"等粗体表误拉进对拍面。"""
+    out = {}
+    started = False
+    for line in read(rel).splitlines():
+        m = HOST_MATRIX_ROW.match(line)
+        if m:
+            out[m.group(1).strip()] = m.group(2)
+            started = True
+        elif started:
+            break
+    return out
+
+
+def _cell_paths(row_text: str) -> "set[str]":
+    """行内的路径/文件名形态反引号单元格(落点),用于双语对拍;
+    命令串与散文措辞(不参与对拍)天然被 '/'·'.md' 判据滤掉。"""
+    return {t for t in BACKTICK_TOKEN.findall(row_text) if "/" in t or t.endswith(".md")}
+
+
 def _check_readme_skill_coverage() -> "list[str]":
     """双语主 README 必须覆盖每个技能,且不得引用不存在的技能名。"""
     problems = []
@@ -145,6 +170,17 @@ def _check_readme_bilingual_parity() -> "list[str]":
         n_rows = len(_skill_table_rows(rel))
         if n_rows < n_skills:
             problems.append(f"{rel}: 技能表格仅 {n_rows} 行 < 技能数 {n_skills}")
+
+    # 回归(第四轮 F10):双语宿主矩阵的关键单元格必须对拍 —— 此前 N4/N5 只改了
+    # 英文行落点(.qoder/skills 等),zh-CN 仍写"落 AGENTS.md",一份文档教错。
+    en, zh = "README.md", "README.zh-CN.md"
+    ea, eb = _host_matrix_rows(en), _host_matrix_rows(zh)
+    if set(ea) != set(eb) or not ea:
+        problems.append(f"{en} / {zh}: 宿主矩阵行集合不一致 {sorted(set(ea) ^ set(eb)) or '均为空(假绿防线)'}")
+    for host in sorted(set(ea) & set(eb)):
+        pa, pb = _cell_paths(ea[host]), _cell_paths(eb[host])
+        if pa != pb:
+            problems.append(f"{zh}: 宿主 {host} 落点与 {en} 不一致 zh={sorted(pa)} en={sorted(pb)}")
     return problems
 
 

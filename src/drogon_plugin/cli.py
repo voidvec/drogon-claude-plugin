@@ -293,8 +293,8 @@ def _remove_legacy_layout(project: Path):
         first_line = ""
         try:
             first_line = md.read_text(encoding="utf-8").split("\n", 1)[0].strip()
-        except OSError:
-            pass
+        except (OSError, UnicodeDecodeError):
+            pass  # F7:读不动/解不动按非插件文件处理,绝不崩溃也绝不删
         if first_line == _CLAUDE_MD_MARKER:
             md.unlink()
             removed.append("CLAUDE.md")
@@ -323,7 +323,11 @@ def _write_instruction_file(project: Path, name: str, content: str, force: bool)
     if not p.exists():
         p.write_text(section, encoding="utf-8")
         return "full"
-    text = p.read_text(encoding="utf-8")
+    try:
+        text = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # F7:解不动(如用户转了 GBK)= 用户自有文件,保守 skipped,不拖死整批安装
+        return "skipped"
     if _MARKER_SECTION_RE.search(text):
         # 已有完整标记段(可能多段):全部替换为最新内容(升级语义)
         p.write_text(_MARKER_SECTION_RE.sub(section.rstrip("\n") + "\n", text), encoding="utf-8")
@@ -655,8 +659,8 @@ def _host_artifact_ok(project: Path, conf: dict) -> bool:
         else:
             try:
                 ok = ok and (_MARKER_BEGIN in p.read_text(encoding="utf-8"))
-            except OSError:
-                ok = False
+            except (OSError, UnicodeDecodeError):
+                ok = False  # F7:不可读的宿主产物判"未就绪(—)",verify 不得崩溃
     return ok
 
 
@@ -758,15 +762,21 @@ def cmd_upgrade(args) -> int:
     ALL_HOSTS 重装。两个后果:①给用户只装过部分宿主的项目凭空落下其余八家产物;
     ②把标记段强推进用户自有的 AGENTS.md/GEMINI.md/CODEBUDDY.md。
     新语义:范围 = 安装戳里已安装的宿主(--host 可显式覆盖);marker 追加是
-    显式 opt-in(--force-agents),永不默认发生;无安装戳退化为全量安装。
+    显式 opt-in(--force-agents),永不默认发生;无 v3 戳但检出 bundle 布局
+    (v2/legacy,含 npm CLI 装的项目)→ 收敛为 claude,zcode(F6);
+    完全无产物时才退化为全量安装。
     """
     if not getattr(args, "host", None):
         try:
             project = _project_dir(args)
             stamped = [h for h in _load_stamp(project).get("hosts", []) if h in HOSTS]
+            if not stamped:
+                layout, _root = _detect_bundle_layout(project)
+                if layout:  # F6:bundle-only 项目(npm 装无 v3 戳)不得放大到 8 家宿主
+                    stamped = ["claude", "zcode"]
         except ValueError:
             stamped = []
-        # _parse_hosts 对空串/None 走 ALL_HOSTS —— 无戳即无范围,保持旧行为
+        # _parse_hosts 对空串/None 走 ALL_HOSTS —— 无任何产物即无范围,保持旧行为
         args.host = ",".join(sorted(set(stamped))) if stamped else None
     return cmd_install(args)
 

@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### Fixed — 第四轮批次②（互操作顺序 / upgrade 范围 / 解码泄漏 / 双语矩阵，报告 F5–F7、F10）
+
+- **npm uninstall 判定前置**（F5）：旧顺序"先删 `.drogon-plugin` 后读 v3 戳"会把混合安装（如 claude+agents）的 bundle 删掉，留下 bundle 缺失而戳宣称 claude/zcode 已装的说谎状态。现在先判账本：无戳（npm 自装自卸）或纯 bundle → bundle+戳全清；混合/损坏戳 → **bundle、legacy、戳一概不动**，提示交由 PyPI CLI 收尾（含损坏戳正向对照测试）。
+- **py upgrade 认 v2 bundle 布局**（F6）：npm 装的项目无 v3 戳，upgrade 曾按"无戳退化全量"凭空落下 8 家宿主产物。现在无 v3 戳但检出 bundle 布局（v2/legacy）→ 范围收敛为 claude,zcode；完全无产物才全量。
+- **非 UTF-8 用户文件三条泄漏路径**（F7）：上轮只修了卸载剥段——①`verify` 遇 GBK 化 `AGENTS.md` 直接 traceback；②`install` 遇解不动的既有指令文件整批失败；③legacy 卸载读 `CLAUDE.md` 崩溃。三处统一按"读不动=不碰"：verify 显示宿主 `—`、install 视为用户文件 skipped+告警、legacy 保留文件。
+- **README 双语矩阵漂移**（F10）：zh-CN 宿主矩阵 Qoder/CodeBuddy 行与 CLI 表行补投 `.qoder/skills`/`.codebuddy/skills`（N4/N5 此前只改了英文侧，"README 已标注"至此才双语属实）；`check-consistency` 的"双语 README 结构对齐"项扩为**宿主矩阵路径单元格对拍**（一行漂移即红，含两文件同错的假绿防线，注入漂移实测见红）。
+- 测试基线变更：批次④的 L1 混合宿主对照测试随 F5 语义更新（断言 bundle **保留**而非删除）。
+
 ### Docs — 第四轮评审（诊断报告，未整改）
 
 - `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md`：对 v0.4.0 后 10 提交增量做四轴对抗评审。上轮声称项全部复核成立；新增 F1–F15（高危 4：钩子正则 ReDoS 实测 42s/62s、回滚三态失败分支可毁在用 bundle/备份/用户技能内容；中 6；低 5）。V7 执行位结论被平台轴动摇，转 V9 走 ubuntu CI 实证。建议整改序见报告 §3，待确认后按批 TDD 开工。
