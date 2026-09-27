@@ -21,7 +21,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code/plugins) / [ZCode
 |------|---------|--------------|
 | **Claude Code** | `claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin` → `claude plugin install drogon` | skills + rules injection + PostToolUse hook |
 | **ZCode** | Add the same marketplace in ZCode's plugin manager → install `drogon` | same as Claude Code |
-| **Codex CLI** | `codex plugin marketplace add voidvec/drogon-claude-plugin` → `codex plugin install drogon@drogon-claude-plugin`; then **review & trust** in the `/plugins` panel (plugin hooks don't run until trusted) | skills + AGENTS.md rules + hooks |
+| **Codex CLI** | `codex plugin marketplace add voidvec/drogon-claude-plugin` → `codex plugin add drogon@drogon-claude-plugin`; then **review & trust** in the `/plugins` panel (plugin hooks don't run until trusted) | skills + AGENTS.md rules + hooks |
 | **Cursor** | `drogon-claude-plugin install --host cursor` in your project → `.cursor/skills/` + `.cursor/rules/` | skills + rules |
 | **VS Code (Copilot)** | `drogon-claude-plugin install --host copilot` → `.agents/skills/` + `AGENTS.md` | skills + rules |
 | **Gemini CLI** | `gemini extensions install https://github.com/voidvec/drogon-claude-plugin` | skills + GEMINI.md context |

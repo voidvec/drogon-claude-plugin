@@ -394,7 +394,7 @@ _HOST_HINTS = {
     "zcode": f"ZCode 插件管理 → 添加 marketplace {_REPO_URL} → 安装 drogon",
     "codex": (
         "codex plugin marketplace add voidvec/drogon-claude-plugin → "
-        "codex plugin install drogon@drogon-claude-plugin;"
+        "codex plugin add drogon@drogon-claude-plugin;"
         "装后在 /plugins 面板 review & trust(信任前插件钩子不运行)"
     ),
     "cursor": "重启 Cursor 打开本项目即生效(.cursor/skills 自动发现)",
