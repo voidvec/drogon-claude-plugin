@@ -21,7 +21,7 @@
 |------|------|---------|
 | **Claude Code** | `claude plugin marketplace add https://github.com/voidvec/drogon-claude-plugin` → `claude plugin install drogon` | 技能 + 规则注入 + PostToolUse 钩子 |
 | **ZCode** | 在 ZCode 插件管理添加同一 marketplace → 安装 `drogon` | 与 Claude Code 一致 |
-| **Codex CLI** | `codex plugin marketplace add voidvec/drogon-claude-plugin` → `codex plugin install drogon@drogon-claude-plugin`;装后在 `/plugins` 面板 **review & trust**（信任前插件钩子不运行） | 技能 + AGENTS.md 规则 + 钩子 |
+| **Codex CLI** | `codex plugin marketplace add voidvec/drogon-claude-plugin` → `codex plugin add drogon@drogon-claude-plugin`;装后在 `/plugins` 面板 **review & trust**（信任前插件钩子不运行） | 技能 + AGENTS.md 规则 + 钩子 |
 | **Cursor** | 项目内 `drogon-claude-plugin install --host cursor` → `.cursor/skills/` + `.cursor/rules/` | 技能 + 规则 |
 | **VS Code (Copilot)** | `drogon-claude-plugin install --host copilot` → `.agents/skills/` + `AGENTS.md` | 技能 + 规则 |
 | **Gemini CLI** | `gemini extensions install https://github.com/voidvec/drogon-claude-plugin` | 技能 + GEMINI.md 上下文 |

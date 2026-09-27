@@ -162,7 +162,7 @@ H6 换行固定（autocrlf=true 临时克隆实证 4 钩子脚本全 LF；`git l
 | V3 | **基本证伪必填担忧**：Codex 清单仅 `name` 必填、`interface` 无必填项；真机降级为冒烟确认 | Codex 构建插件文档 |
 | V4 | **已证伪**：Trae 规则为 `.trae/rules/*.md`，文档零处 `.mdc` → R10 | docs.trae.ai/ide/rules（页面全文检索） |
 | V5 | **已证实**：`globs`/`alwaysApply` 现行有效，`alwaysApply:true` 全文应用 | cursor.com/docs/context/rules |
-| V6 | **已真机证实（本地 marketplace 路径）**（2026-09-26，codex-cli 0.156.1 / win32，未登录态）：`marketplace add <本地目录>` + `plugin add drogon@drogon-claude-plugin` 全链走通；`source.path: "./"` 以 **marketplace 根（仓库根）**为解析基准成立；安装语义=**工作区整树快照复制**至 `~/.codex/plugins/cache/<mkt>/drogon/<version>/`（连同 `.git`/`build`/`dist` 等脏产物，实测 452 文件），`plugin list` 的 SOURCE 显示原始仓库路径。GitHub 型 marketplace 的 ref 解析仍未测 | 见 §7 真机补录 |
+| V6 | **已真机证实（本地 marketplace 路径）**（2026-09-26，codex-cli 0.156.1 / win32，未登录态）：`marketplace add <本地目录>` + `plugin add drogon@drogon-claude-plugin` 全链走通；`source.path: "./"` 以 **marketplace 根（仓库根）**为解析基准成立；安装语义=**工作区整树快照复制**至 `~/.codex/plugins/cache/<mkt>/drogon/<version>/`（连同 `.git`/`build`/`dist` 等脏产物，实测 452 文件），`plugin list` 的 SOURCE 显示原始仓库路径。GitHub 型 marketplace 的 ref 解析仍未测 | 见 §7 真机补录（含顺带修复的文档命令名缺陷 `codex plugin install`→`add`） |
 
 新增待真机项：V7 = pip 解包 wheel 后钩子脚本可执行位是否保留（P2 关联）——**渠道分析结案**：发布作业固定 ubuntu-latest 构建，git 中 `hooks/post-tool-use`、`run-hook.cmd`、`session-start` 均为 100755，ubuntu 下 `python -m build` 将 unix mode 记入 wheel、pip 安装还原、PyPI CLI `shutil.copy2` 保留位（npm 侧另有显式 chmod 755）；Windows 本地构建的 wheel 无执行位属文件系统常态、不构成反证。正向复核（CI 产物 wheel 解包看 mode）可随下次发版顺手做。V8 = Codex `additionalContext` ~2500 token 上限下中文规则全文注入是否降级为磁盘预览（N7）——**已量化，未证实降级行为**（需 `codex` 登录态跑一次会话，本机未登录）。
 
@@ -199,9 +199,9 @@ codex plugin add drogon@drogon-claude-plugin      # → Installed plugin root: ~
 ```
 
 - **解析基准 = marketplace 根（仓库根）**：`source.path: "./"` 命中仓库根的 `.codex-plugin/plugin.json`，安装成功；`"./"` 前缀形态有效（R1 落点正确）。
-- **安装语义 = 工作区整树快照复制**：实测复制 452 文件 / 3.8 MB，连 `.git/`、`build/`、`dist/`、`.pytest_cache/` 一并入缓存（探针标记文件实验证实非就地引用）。`plugin list` 的 SOURCE 列显示原始仓库路径。
-- **操作注记**：`codex plugin remove <name>` 不带 marketplace 会报 usage 错误；卸载须 `remove drogon@drogon-claude-plugin`。marketplace 条目与 `[plugins."…"]` 配置块独立增删。
-- **登记风险（非缺陷）**：脏工作区会把未提交/忽略产物带进缓存插件。文档建议从干净 checkout 安装。GitHub 型 marketplace 的 ref→缓存路径未测（保持 V6 残余）。
+- **安装语义 = 工作区整树的"安装时点"快照复制**：实测复制 452 文件 / 3.8 MB，连 `.git/`、`build/`、`dist/`、`.pytest_cache/` 一并入缓存。时序实验：探针文件系 `plugin add` **之后**在仓库根新建 → 缓存中不出现，排除"就地引用/实时同步"；而安装时点已存在的未跟踪产物（.git/build/dist）在缓存中出现 → 两观察唯一自洽解释为**安装瞬间整树复制**。`plugin list` 的 SOURCE 列显示原始仓库路径（溯源元数据，与复制语义不矛盾）。
+- **真机顺带发现（已修）**：README 与 `--host codex` 提示曾写 `codex plugin install drogon@…` —— 该子命令不存在（0.156.1 `plugin --help` 全量核对，安装是 `plugin add`），已三处更正并加漂移守卫测试。`plugin remove` 须带 `@marketplace` 限定。
+- **登记风险（非缺陷）**：脏工作区会把未提交/忽略产物带进缓存插件，建议从干净 checkout 安装。**外推边界**：README 推荐的真实形态是 GitHub 简写（`marketplace add voidvec/drogon-claude-plugin`），本轮仅测本地目录型；ref→缓存路径与登录态 trust 门禁均待后续核实。
 
 ### V7 — wheel 执行位（渠道分析结案，见 §5）
 
@@ -212,7 +212,7 @@ codex plugin add drogon@drogon-claude-plugin      # → Installed plugin root: ~
 | 指标 | 值 |
 |---|---|
 | 字符数 | 5146 |
-| CJK 字符 | 1571 |
+| CJK 字符（含中文标点，宽口径；纯汉字 1339） | 1571 |
 | token 估算（CJK≈1/字，ASCII≈4 字符/token） | ≈2465 |
 
 - 估算**恰在 ~2500 阈值边缘**（±2%），主流 BPE 对中文常 >1 token/字 → 实际大概率**已越线**。

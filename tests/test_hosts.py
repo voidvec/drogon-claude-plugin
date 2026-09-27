@@ -1006,5 +1006,22 @@ def test_posttooluse_scan_cli_json_contract(tmp_path, capsys):
         os.chdir(old)
 
 
+# ---------------------------------------------------------------------------
+# 真机对撞(V6 发现):宿主提示/README 里的宿主命令必须是宿主 CLI 真实存在的子命令
+# ---------------------------------------------------------------------------
+
+
+def test_codex_hint_names_real_subcommand_add_not_install():
+    """V6 真机核实:codex-cli 0.156.1 的安装子命令是 `plugin add`,不存在
+    `plugin install`(help 全量核对)。此前 _HOST_HINTS/README 三处写错,用户照抄必失败。"""
+    hint = cli_mod._HOST_HINTS["codex"]
+    assert "codex plugin add " in hint, f"codex 提示未用真实子命令 add: {hint}"
+    assert "codex plugin install" not in hint
+
+    for name in ("README.md", "README.zh-CN.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        assert "codex plugin install" not in text, f"{name} 仍在教不存在的 `codex plugin install`"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))
