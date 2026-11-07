@@ -83,3 +83,31 @@ EN 已写 `.qoder/skills`+`.codebuddy/skills`，zh 仍写"落 AGENTS.md｜规则
 | ④ | F14、F15 | dependabot/注释校验按需；发版走 0.5.0 并修 CHANGELOG 头部措辞 |
 
 > 真机尾项不变：V8 降级观察、GitHub 型 marketplace 解析、N4/N5 桌面核验。
+
+## 4. 发版 0.5.0 实况（2026-11-07，补记）
+
+tag `v0.5.0` 触发 publish.yml，首跑在 npm 步骤 403 中断（PyPI 已发成功、Release 被 skipped），修好凭证后重跑成功。过程中暴露两处本轮新代码之外的问题，均已单独整改：
+
+| 项 | 实况证据 | 处置 |
+|---|---|---|
+| 发布正文说谎 | `RELEASE_TEMPLATE.md` 是 `body_path`，却写着"17 技能"（事实源 22）且 `## What's new` 是未填占位；v0.4.0 的 Release 实证已原样对外发出去 | PR #11：纳入 `check-consistency` 计数清单 + "占位未填即红"守卫 |
+| Release 排在渠道之后 | npm 403 → `Create GitHub Release` 被 skipped，形成"包能装但找不到发布说明/附件"的半发版 | PR #12：Release 前移到两个 `Publish to *` 之前，`tests/test_release_workflow.py` 按步骤名顺序锁死 |
+
+补救副产品（已核对）：重跑会**重新构建**，而 PyPI 那步 `skip-existing` 保留首轮文件，于是 Release 附件与 PyPI 同版本文件字节不同（wheel 同尺寸不同 sha256，sdist 尺寸也差 43B）。当时从 PyPI 取回首轮上传件、校验 sha256 后 `gh release upload --clobber` 覆盖，两侧现完全一致。PR #12 的顺序修复从根上消除了这种分叉——Release 用的就是本轮构建那份文件。
+
+### 0.6.0 待办：npm Trusted Publishing（OIDC），登记不实施
+
+`NPM_TOKEN` 是长期凭证，npm 的政策收紧会再次打断发版（2026-07-31 起 bypass-2FA granular token 已不能做敏感操作，本次 403 即同源）。改用 OIDC 后 CI 不再持有 npm 凭证。落地前提，按证据强弱排列：
+
+1. **npm CLI 版本是硬门槛**：官方要求 ≥ 11.5.1，而本 workflow `node-version: '20'` 自带 npm 10.x——10.x 会**静默降级**回 token 路径而非报错。迁移必须同时把 Node 升到自带 npm 11.x 的大版本（或在步骤里显式升级 npm），否则配置看似完成实则没换认证方式。
+2. **作业权限**：`permissions: id-token: write`；`Publish to npm` 步骤去掉 `NODE_AUTH_TOKEN`，保留 provenance。仅支持 GitHub 托管 runner。
+3. **npm 侧一次性人工配置**（脚本做不到）：包页 → Publishing access → Trusted Publisher，填仓库 owner/name、**workflow 文件名**（`publish.yml`，不是全路径）与 Environment（本仓库无 environment，留空需与包侧配置一致）。配好前 OIDC 发布会被拒。
+4. **验收口径**：发布后在 registry 上确认 0.x.y 的 provenance/attestation 可见，且 CI 日志里出现 sigstore 透明度记录——只有出现后者才说明 `id-token` 真的生效，别把 provenance 与 Trusted Publishing 当成同一件事。
+
+参考落点（npm 官方 `docs.npmjs.com/trusted-publishers` 为 JS 渲染、抓取取不到正文，故本轮只能引次级源；版本号门槛与"静默降级"行为登记为**待真机验证**）：
+
+- npm 官方命令文档：`docs.npmjs.com/cli/v12/commands/npm-trust`（明确"带 bypass 2FA 的 Granular Access Token 不被支持"）
+- GitHub 官方：`docs.github.com/actions/tutorials/publish-packages/publish-nodejs-packages`（`id-token: write` + 无 token 的发布形态）
+- 次级源：npm 各版本 `oidc.js` 支持对照（10.8.2 无 / 11.5.1 起为官方最低要求）、Trusted Publisher 表单填 workflow 文件名而非全路径、仅支持 GitHub 托管 runner
+
+
