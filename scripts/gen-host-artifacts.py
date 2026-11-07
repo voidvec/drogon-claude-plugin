@@ -206,16 +206,30 @@ def sync_file(path: Path, kind: str, version: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _read_raw(path: Path) -> str:
+    """按原始字节读文本,关闭换行翻译。
+
+    默认文本模式会把文件里的 CRLF 读成 LF,于是 F13 那类污染在比对时永远是
+    "old == content" 的假象,陈旧文件再也改不掉,--check 也看不见。
+    """
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        return fh.read()
+
+
 def _write_lf(path: Path, text: str) -> None:
     """显式按 LF 写出。
 
-    回归(第四轮批次③ F13):`Path.write_text` 默认文本模式在 Windows 会把
-    "\n" 翻译成 "\r\n"(newline=None 的平台默认),本机生成一次宿主产物就污染
-    整文件 —— sync-assets.py 用 copy2 原样搬运字节,不带 git 的 clean 过滤器,
-    所以 CRLF 会一路带进 `npm/assets/`、`drogon_plugin_assets/`,连本地构建的
-    wheel 都受影响(发布走 ubuntu CI 重生成所以线上无恙,但诊断仍应修根因)。
+    回归(第四轮批次③ F13):默认文本模式在 Windows 会把 "\n" 翻译成 "\r\n"
+    (newline=None 的平台默认),本机生成一次宿主产物就污染整文件 ——
+    sync-assets.py 用 copy2 原样搬运字节,不带 git 的 clean 过滤器,所以 CRLF
+    会一路带进 `npm/assets/`、`drogon_plugin_assets/`,连本地构建的 wheel 都
+    受影响(发布走 ubuntu CI 重生成所以线上无恙,但诊断仍应修根因)。
+
+    用 open(newline=) 而非 write_text(newline=):后者是 3.10+ 的 Path 参数,
+    本仓库最低支持 3.9(CI 矩阵),3.11 上 publish 流程也会因此崩。
     """
-    path.write_text(text, encoding="utf-8", newline="\n")
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
 
 
 def generate(version: str) -> list:
@@ -233,10 +247,9 @@ def generate(version: str) -> list:
     for rel, content in outputs.items():
         p = REPO / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        # newline="" 关闭读入换行翻译:此前用默认文本模式读,被 F13 写坏的 CRLF
-        # 在比对时会被翻译回 LF 假象,"old == content" 永远成立 —— 陈旧文件就再也
-        # 不会被改写。按原始字节读才能真正发现并自愈 CRLF 污染。
-        old = p.read_text(encoding="utf-8", newline="") if p.is_file() else None
+        # 按原始字节读:被 F13 写坏的 CRLF 只有在不过滤时才暴露出来,
+        # 进而被下面的 _write_lf 自愈。
+        old = _read_raw(p) if p.is_file() else None
         if old != content:
             _write_lf(p, content)
             written.append(rel)
@@ -262,9 +275,8 @@ def check(version: str) -> list:
         p = REPO / rel
         if not p.is_file():
             problems.append(f"缺失 {rel}")
-        elif p.read_text(encoding="utf-8", newline="") != content:
-            # newline="" 同 generate():否则 F13 类 CRLF 污染会被读入翻译抹平,
-            # "--check" 门禁看不见、长期假绿。
+        elif _read_raw(p) != content:
+            # 同 generate():默认文本模式会抹平 CRLF,"--check" 门禁看不见、长期假绿。
             problems.append(f"{rel} 与事实源不一致")
 
     for rel, kind in SYNC_RULES:

@@ -1220,7 +1220,12 @@ def test_copy_assets_chmods_hook_executables(tmp_path, monkeypatch):
     dest.mkdir()
 
     calls = []
-    monkeypatch.setattr(cli_mod.os, "chmod", lambda p, mode: calls.append((p, mode)))
+    # POSIX 下 shutil.copystat 会用 os.chmod(dst, mode, follow_symlinks=...) 调用
+    # 同一个被替换的 os.chmod(Windows 上它不调),补丁签名必须容忍关键字实参。
+    def _fake_chmod(path, mode, **kwargs):
+        calls.append((path, mode))
+
+    monkeypatch.setattr(cli_mod.os, "chmod", _fake_chmod)
     cli_mod._copy_assets(src, dest)
 
     # copy2 内部 copystat 也会调 os.chmod(源文件的 0o6xx/0o4xx),按 0o755 过滤只看兜底位补齐
@@ -1346,6 +1351,61 @@ def test_generated_repo_artifacts_are_lf_only():
                 ".codex-plugin/plugin.json", ".agents/plugins/marketplace.json"):
         raw = (REPO_ROOT / rel).read_bytes()
         assert b"\r\n" not in raw, f"{rel} 含 CRLF,违反 F13"
+
+
+# ---------------------------------------------------------------------------
+# 回归(批次③ CI 补课):scripts/ 不得用高于 requires-python 下界的 Path API
+# ---------------------------------------------------------------------------
+
+_NEWLINE_KW_PATH_API = re.compile(
+    r"\.(read_text|write_text)\([^)]*\bnewline\s*="
+)
+
+
+def _newline_kw_path_api_offenders(directory: Path) -> "list[str]":
+    out = []
+    for f in sorted(directory.glob("*.py")):
+        for lineno, line in enumerate(
+            f.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if _NEWLINE_KW_PATH_API.search(line):
+                out.append(f"{f.name}:{lineno}: {line.strip()}")
+    return out
+
+
+def test_newline_kw_detector_ignores_open_and_reports_path_api(tmp_path):
+    """守卫本身的双向验证:open(..., newline=) 是各版本都有的正确写法(不应报),
+    Path.read_text/write_text(newline=) 才是 3.13+/3.10+ 才有的参数(必须报)。"""
+    (tmp_path / "ok.py").write_text(
+        "with p.open('r', encoding='utf-8', newline='') as fh:\n"
+        "    t = fh.read()\n"
+        "with p.open('w', encoding='utf-8', newline='\\n') as fh:\n"
+        "    fh.write(t)\n",
+        encoding="utf-8",
+    )
+    assert _newline_kw_path_api_offenders(tmp_path) == []
+
+    (tmp_path / "bad.py").write_text(
+        "t = p.read_text(encoding='utf-8', newline='')\n"
+        "q.write_text(t, encoding='utf-8', newline='\\n')\n",
+        encoding="utf-8",
+    )
+    offenders = _newline_kw_path_api_offenders(tmp_path)
+    assert offenders == [
+        "bad.py:1: t = p.read_text(encoding='utf-8', newline='')",
+        "bad.py:2: q.write_text(t, encoding='utf-8', newline='\\n')",
+    ], f"守卫漏检:{offenders}"
+
+
+def test_scripts_avoid_path_api_newline_kw():
+    """CI 矩阵下界 py3.9,本地 3.14 全绿也挡不住:`Path.read_text(newline=)` 是
+    3.13+、`Path.write_text(newline=)` 是 3.10+,用了就在 ubuntu/py3.9、3.11
+    作业上 TypeError(publish 流程同档)。跨版本 API 只能靠静态守卫。"""
+    for rel in ("scripts", "src/drogon_plugin", "hooks"):
+        directory = REPO_ROOT / rel
+        assert list(directory.glob("*.py")), f"守卫空转:{rel}/ 没扫到任何 .py"
+        offenders = _newline_kw_path_api_offenders(directory)
+        assert offenders == [], f"{rel}/ 用了高于 py3.9 的 Path API: {offenders}"
 
 
 if __name__ == "__main__":
