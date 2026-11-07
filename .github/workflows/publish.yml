@@ -54,6 +54,19 @@ jobs:
           python scripts/sync-assets.py
           python -m build
 
+      # Release 必须排在两个渠道发布之前:v0.5.0 实证 npm 403 中断作业后,排在它后面的
+      # 这一步被 skipped,而 PyPI 已经发出去 —— 对外只剩"包能装但找不到发布说明/附件"。
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: .github/RELEASE_TEMPLATE.md
+          draft: false
+          prerelease: false
+          files: |
+            dist/drogon_claude_plugin-*.whl
+            dist/drogon_claude_plugin-*.tar.gz
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2 (release/v1 HEAD @2026-09)
         with:
@@ -72,14 +85,3 @@ jobs:
           npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          name: ${{ github.ref_name }}
-          body_path: .github/RELEASE_TEMPLATE.md
-          draft: false
-          prerelease: false
-          files: |
-            dist/drogon_claude_plugin-*.whl
-            dist/drogon_claude_plugin-*.tar.gz
