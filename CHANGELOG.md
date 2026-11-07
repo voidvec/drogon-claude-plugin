@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Fixed — 发版工作流的失败语义
+
+- **GitHub Release 此前排在 PyPI/npm 之后**,任一渠道失败都会让作业中断、Release 被 skipped:发布 v0.5.0 时 npm 返回 403(注册中心要求带 2FA-bypass 的 granular token),结果 PyPI 0.5.0 已上线而 Release 与 wheel/sdist 附件根本没建出来——对外变成"包能装但找不到发布说明"的半发版。现把 Release 步骤前移到构建之后、两个渠道之前,并由 `tests/test_release_workflow.py` 锁死该顺序。
+
 ## [0.5.0] - 2026-11-07
 
 ### Fixed — 发布正文（GitHub Release body）说谎与占位
