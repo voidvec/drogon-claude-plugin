@@ -8,6 +8,10 @@
 
 ## [0.5.0] - 2026-11-07
 
+### Fixed — 发布正文（GitHub Release body）说谎与占位
+
+- **`.github/RELEASE_TEMPLATE.md` 是 publish.yml 的 `body_path`**,每次发版的 Release 正文就是它,却不在任何计数门禁里:技能数还写着"17 技能"(事实源 `skills/` 目录 22 个),`## What's new` 是未填的占位注释——**v0.4.0 的 Release 正文实证已把这两条原样对外发布**。现补全本版亮点、按事实源改正计数,并把该文件纳入 `check-consistency` 的计数清单(注入"17 个技能"实测见红),另加"占位未填即红"的守卫。
+
 ### Fixed — 第四轮批次④（CI 引用形态守卫 / 发版语义与归档门禁，报告 F14–F15）
 
 登记依据见 `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md` §3 批次④；逐条先见 RED 再修。

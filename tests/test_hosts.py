@@ -1535,6 +1535,19 @@ def test_changelog_gate_registered_and_repo_passes():
 # ---------------------------------------------------------------------------
 
 
+def test_release_template_is_count_gated_and_filled():
+    """.github/RELEASE_TEMPLATE.md 是 publish.yml 的 `body_path` —— 每次发版的 GitHub
+    Release 正文就是它。v0.4.0 实证:正文写着"17 技能"(事实源 skills/ 目录 22 个),
+    且 `## What's new` 还是没填的占位注释,两者都随发布对外说谎且无任何信号。
+    现在它必须①在计数门禁清单里、②计数与事实源吻合、③不留未填占位。"""
+    rel = ".github/RELEASE_TEMPLATE.md"
+    assert rel in consistency.COUNTED_DOCS, "发布正文未纳入跨产物计数门禁"
+    text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+    assert "简述本版本的变更亮点" not in text, "What's new 仍是未填占位,会原样发进 Release"
+    problems = [p for p in consistency._check_readme_counts() if "RELEASE_TEMPLATE" in p]
+    assert not problems, f"发布正文的技能/钩子数与事实源不符: {problems}"
+
+
 def test_changelog_header_points_at_single_source_not_manual_edits():
     """头部若还写"同步四处版本号"(手改清单),照做就会漏掉另外几处 —— 现实是改
     VERSION 后由生成器一次性同步全部版本字段与宿主产物(具体条数由

@@ -80,7 +80,10 @@ HOOK_COUNT_PATTERNS = (
 EXPECTED_HOOK_COUNT = 2
 
 # 文档里允许出现技能数的地方(其余文件不校验,如 CHANGELOG 的历史叙述)
-COUNTED_DOCS = ("README.md", "README.zh-CN.md", "npm/README.md", "npm/README.zh-CN.md")
+# `.github/RELEASE_TEMPLATE.md` 是 publish.yml 的 body_path —— 每次发版的 GitHub Release
+# 正文,数字写错就随发布对外说谎(v0.4.0 实证写过 17 技能,事实源 22)。
+COUNTED_DOCS = ("README.md", "README.zh-CN.md", "npm/README.md", "npm/README.zh-CN.md",
+                ".github/RELEASE_TEMPLATE.md")
 
 
 # ---------------------------------------------------------------------------
