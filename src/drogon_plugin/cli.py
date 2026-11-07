@@ -59,6 +59,9 @@ _EXPECTED_HOOK_FILES = (
     "post-tool-use",
     "posttooluse.py",
 )
+# hooks.json 只是清单元数据,不需要执行位;其余 4 个钩子入口落地后必须可执行。
+# 与 npm 侧 HOOK_EXEC_FILES 同一口径(见 npm/bin/cli.js),不是巧合是刻意对齐。
+_HOOK_EXEC_FILES = tuple(f for f in _EXPECTED_HOOK_FILES if f != "hooks.json")
 _EXPECTED_HOOK_EVENTS = 2
 
 # 技能数量没有常量:单一事实源是随包资产里的 skills/ 目录,一律实枚举(见 _bundled_skill_count)。
@@ -162,16 +165,32 @@ def _bundled_skill_count() -> int:
     return _skill_count_of(_find_assets() / "skills")
 
 
-def _skills_ok(skills_dir: Path) -> bool:
-    """技能目录是否与随包资产一致。
+def _bundled_skill_names() -> "list[str]":
+    """随包技能名(实枚举),与 `_bundled_skill_count` 同源。"""
+    skills_root = _find_assets() / "skills"
+    if not skills_root.is_dir():
+        return []
+    return sorted(d.name for d in skills_root.iterdir() if d.is_dir())
 
-    回归(M4′):此前"随包枚举为 0 时非空即过"的降级让残缺包在 verify 里
-    静默绿灯 —— expected==0 本身就是包残缺,必须判失败。
+
+def _skills_ok(skills_dir: Path) -> bool:
+    """每个随包技能都必须落盘且带 SKILL.md。
+
+    回归(M4′):随包枚举为 0 本身就是包残缺,必须判失败,不得降级放行。
+    回归(第四轮批次③ F12):此前用"目录计数相等"当判据,两处不对:
+      1. 空壳技能目录(SKILL.md 被删,目录还在)计数不变,被静默放行 —— npm 侧
+         逐个查 SKILL.md,py 应对齐;
+      2. `.agents/skills` 这类宿主技能目录与用户自有技能共存是常态,严格相等
+         会把已装成功的宿主长期误报成 "—"。改为只核对随包技能名都在,不管旁挂
+         的自有技能目录。
     """
-    expected = _bundled_skill_count()
-    if not expected:
+    if not _bundled_skill_count():
         return False
-    return _skill_count_of(skills_dir) == expected
+    for name in _bundled_skill_names():
+        d = skills_dir / name
+        if not d.is_dir() or not (d / "SKILL.md").is_file():
+            return False
+    return True
 
 
 def _parse_hosts(spec: "str | None") -> list:
@@ -236,7 +255,47 @@ def _copy_assets(src_root: Path, target_root: Path) -> int:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dest)
         count += 1
+    # 回归(第四轮批次③ F8/V9):copy2 的 mode 继承自随包资产,而 wheel 装进
+    # site-packages 后钩子文件是否仍带 POSIX 执行位存疑(V7 未证);不能指望源
+    # 恰好带 x 位,统一显式补 0o755。Windows 上 x 位无意义,是 no-op,不报错。
+    # 与 npm 侧 copyAssets 的 P2 修复同一手法。
+    for name in _HOOK_EXEC_FILES:
+        f = target_root / "hooks" / name
+        if f.is_file():
+            os.chmod(f, 0o755)
     return count
+
+
+def _stale_backup_candidates(project: Path) -> "list[Path]":
+    """崩溃/被杀进程留下的改名备份:`.drogon-plugin.old-<pid>` 与技能目录
+    `drogon-<name>.old-<pid>`。批次①的 F2/F4 只在**当次**安装成功收尾时才删备份;
+    进程在那之前被 SIGKILL/断电,就没人再认领(F9)。
+
+    只认非本次 pid 的:同 pid 的备份属于正在进行(或刚失败、马上要回滚还原)的
+    换页,不是孤儿,删了会破坏回滚。
+    """
+    my_pid = str(os.getpid())
+    out = []
+    for d in project.glob(f"{_INSTALL_DIR}.old-*"):
+        if d.is_dir() and d.name.rsplit(".old-", 1)[-1] != my_pid:
+            out.append(d)
+    for skills_dir in {c.get("skills_dir") for c in HOSTS.values() if c.get("skills_dir")}:
+        base = project / skills_dir
+        if not base.is_dir():
+            continue
+        for d in base.glob(f"drogon-*.old-*"):
+            if d.is_dir() and d.name.rsplit(".old-", 1)[-1] != my_pid:
+                out.append(d)
+    return out
+
+
+def _reap_stale_backups(project: Path) -> int:
+    """install 期主动回收陈旧备份,返回清理个数。"""
+    n = 0
+    for d in _stale_backup_candidates(project):
+        shutil.rmtree(d, ignore_errors=True)
+        n += 1
+    return n
 
 
 def _load_manifest(plugin_root: Path) -> dict:
@@ -491,6 +550,12 @@ def cmd_install(args) -> int:
         print(f"❌ {e}", file=sys.stderr)
         return 1
 
+    # 回归(第四轮批次③ F9):上次崩溃/被杀留下的改名备份从来无人回收,
+    # 本次安装先扫一遍陈旧项(非本进程 pid)再落盘。
+    reaped = _reap_stale_backups(project)
+    if reaped:
+        print(f"   ♻️  已回收 {reaped} 处陈旧安装备份(*.old-<pid>)")
+
     force = bool(getattr(args, "force_agents", False))
     written: list = []
     instruction_files: dict = {}
@@ -707,12 +772,18 @@ def cmd_verify(args) -> int:
         skills_dir = plugin_root / "skills"
         if not skills_dir.is_dir():
             problems.append("缺少 skills/ 目录")
-        elif not _skills_ok(skills_dir):
+        else:
             bundled = _bundled_skill_count()
-            problems.append(
-                f"技能数 {_skill_count_of(skills_dir)} != 随包 {bundled}"
-                + ("(包残缺:随包技能枚举为 0,请重装/upgrade 本包)" if not bundled else "")
-            )
+            if _skill_count_of(skills_dir) != bundled:
+                problems.append(
+                    f"技能数 {_skill_count_of(skills_dir)} != 随包 {bundled}"
+                    + ("(包残缺:随包技能枚举为 0,请重装/upgrade 本包)" if not bundled else "")
+                )
+            # 回归(第四轮批次③ F12):对齐 npm cmdVerify 的逐技能口径——bundle 私有
+            # skills/ 目录里每个已落盘的技能目录都得带 SKILL.md,不只是数目录个数。
+            for name in sorted(d.name for d in skills_dir.iterdir() if d.is_dir()):
+                if not (skills_dir / name / "SKILL.md").is_file():
+                    problems.append(f"技能 {name} 缺少 SKILL.md")
         for f in _EXPECTED_HOOK_FILES:
             if not (plugin_root / "hooks" / f).is_file():
                 problems.append(f"缺少 hooks/{f}")
@@ -727,18 +798,35 @@ def cmd_verify(args) -> int:
             problems.append("缺少 .zcode-plugin/plugin.json")
         problems.extend(_drift_problems(plugin_root))
 
-    host_status = [(h, _host_artifact_ok(project, c)) for h, c in HOSTS.items()]
+    host_status = {h: _host_artifact_ok(project, c) for h, c in HOSTS.items()}
+
+    # 回归(第四轮批次③ F12 尾项):此前"记录安装过、现在产物坏了"不会进 problems——
+    # 只要还有任一(可能是共享指令文件带来的、并非本次安装的)宿主显示 ✅,verify 就
+    # 落到"✅ 通过",把真正坏掉的宿主静默吞掉。用安装戳的 hosts 清单逐个对账。
+    for h in stamp.get("hosts", []) if stamp else []:
+        if h in host_status and not host_status[h]:
+            problems.append(f"宿主 {h} 已记录安装但产物不完整/不可用,可 upgrade")
+
+    ordered_host_status = list(host_status.items())
 
     print(f"📦 drogon-claude-plugin 校验 — {project}")
     print(f"   bundle   : {layout or '未安装'}(版本 {manifest_ver})")
-    row1 = "  ".join(f"{h}{'✅' if ok else '—'}" for h, ok in host_status[:5])
-    row2 = "  ".join(f"{h}{'✅' if ok else '—'}" for h, ok in host_status[5:])
+    row1 = "  ".join(f"{h}{'✅' if ok else '—'}" for h, ok in ordered_host_status[:5])
+    row2 = "  ".join(f"{h}{'✅' if ok else '—'}" for h, ok in ordered_host_status[5:])
     print(f"   宿主     : {row1}")
     print(f"             {row2}")
     if stamp:
         print(f"   安装记录 : v{stamp.get('version', '?')} · 宿主 {', '.join(stamp.get('hosts', []))}")
 
-    if layout is None and not any(ok for _, ok in host_status):
+    # 回归(第四轮批次③ F9):崩溃/被杀留下的改名备份只在下次 install 时才回收;
+    # verify 不主动删(怕撞上正在进行的换页),但要提示残留,否则长期无人发现。
+    stale = _stale_backup_candidates(project)
+    if stale:
+        names = ", ".join(d.name for d in sorted(stale, key=lambda d: str(d))[:3])
+        more = f" 等 {len(stale)} 处" if len(stale) > 3 else ""
+        print(f"   ⚠ 残留安装备份: {names}{more}(下次 install 会自动清理,也可手动删除)")
+
+    if layout is None and not any(host_status.values()):
         print("   ❌ 未发现任何插件产物(先运行 install)")
         return 1
     if problems:
@@ -975,10 +1063,16 @@ def _prune_stamp(project: Path, stamp: dict) -> None:
     """剔掉已不存在的落点记录。
 
     否则按宿主卸载后 ``stamp["files"]`` 仍非空,会把安装戳文件留在项目里(残留)。
+
+    回归(第四轮批次③ F11):``instruction_files`` 判据此前只看文件存在性,漏掉了
+    语义 —— "skipped" 表示文件本就归用户自有、本插件从未写过一笔,不存在"需要
+    清理"的记录;留着它会让只剩 skipped 的戳永不收敛清零(卸载后仍残留戳文件)。
     """
     stamp["files"] = [f for f in stamp.get("files", []) if (project / f).exists()]
     stamp["instruction_files"] = {
-        n: a for n, a in stamp.get("instruction_files", {}).items() if (project / n).exists()
+        n: a
+        for n, a in stamp.get("instruction_files", {}).items()
+        if a != "skipped" and (project / n).exists()
     }
 
 

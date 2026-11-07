@@ -196,7 +196,7 @@ def sync_file(path: Path, kind: str, version: str) -> bool:
     else:
         raise ValueError(kind)
     if new != text:
-        path.write_text(new, encoding="utf-8")
+        _write_lf(path, new)
         return True
     return False
 
@@ -204,6 +204,18 @@ def sync_file(path: Path, kind: str, version: str) -> bool:
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
+
+
+def _write_lf(path: Path, text: str) -> None:
+    """显式按 LF 写出。
+
+    回归(第四轮批次③ F13):`Path.write_text` 默认文本模式在 Windows 会把
+    "\n" 翻译成 "\r\n"(newline=None 的平台默认),本机生成一次宿主产物就污染
+    整文件 —— sync-assets.py 用 copy2 原样搬运字节,不带 git 的 clean 过滤器,
+    所以 CRLF 会一路带进 `npm/assets/`、`drogon_plugin_assets/`,连本地构建的
+    wheel 都受影响(发布走 ubuntu CI 重生成所以线上无恙,但诊断仍应修根因)。
+    """
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def generate(version: str) -> list:
@@ -221,9 +233,12 @@ def generate(version: str) -> list:
     for rel, content in outputs.items():
         p = REPO / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        old = p.read_text(encoding="utf-8") if p.is_file() else None
+        # newline="" 关闭读入换行翻译:此前用默认文本模式读,被 F13 写坏的 CRLF
+        # 在比对时会被翻译回 LF 假象,"old == content" 永远成立 —— 陈旧文件就再也
+        # 不会被改写。按原始字节读才能真正发现并自愈 CRLF 污染。
+        old = p.read_text(encoding="utf-8", newline="") if p.is_file() else None
         if old != content:
-            p.write_text(content, encoding="utf-8")
+            _write_lf(p, content)
             written.append(rel)
 
     for rel, kind in SYNC_RULES:
@@ -247,7 +262,9 @@ def check(version: str) -> list:
         p = REPO / rel
         if not p.is_file():
             problems.append(f"缺失 {rel}")
-        elif p.read_text(encoding="utf-8") != content:
+        elif p.read_text(encoding="utf-8", newline="") != content:
+            # newline="" 同 generate():否则 F13 类 CRLF 污染会被读入翻译抹平,
+            # "--check" 门禁看不见、长期假绿。
             problems.append(f"{rel} 与事实源不一致")
 
     for rel, kind in SYNC_RULES:
