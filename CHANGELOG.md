@@ -10,6 +10,10 @@
 
 - **GitHub Release 此前排在 PyPI/npm 之后**,任一渠道失败都会让作业中断、Release 被 skipped:发布 v0.5.0 时 npm 返回 403(注册中心要求带 2FA-bypass 的 granular token),结果 PyPI 0.5.0 已上线而 Release 与 wheel/sdist 附件根本没建出来——对外变成"包能装但找不到发布说明"的半发版。现把 Release 步骤前移到构建之后、两个渠道之前,并由 `tests/test_release_workflow.py` 锁死该顺序。
 
+### Documentation — v0.5.0 发版实况与 npm 凭证尾项
+
+- `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md` 新增 §4:补记 0.5.0 三渠道实况(含"重跑会重新构建、Release 附件需与 PyPI 首轮文件对拍 sha256"这一处置),并登记 **0.6.0 待办 = npm Trusted Publishing(OIDC)**;其中硬门槛是 npm CLI ≥ 11.5.1,而本仓库 workflow 用 `node-version: '20'`(自带 npm 10.x 会静默降级回 token 路径),连同 npm 侧一次性人工配置一起写明,避免照抄官方片段后误以为已切换认证方式。
+
 ## [0.5.0] - 2026-11-07
 
 ### Fixed — 发布正文（GitHub Release body）说谎与占位
