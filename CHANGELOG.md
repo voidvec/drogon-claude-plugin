@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-07
+
 ### Fixed — 第四轮批次④（CI 引用形态守卫 / 发版语义与归档门禁，报告 F14–F15）
 
 登记依据见 `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md` §3 批次④；逐条先见 RED 再修。
