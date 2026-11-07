@@ -1408,5 +1408,100 @@ def test_scripts_avoid_path_api_newline_kw():
         assert offenders == [], f"{rel}/ 用了高于 py3.9 的 Path API: {offenders}"
 
 
+# ---------------------------------------------------------------------------
+# 批次④-F15c:CHANGELOG 归档门禁([Unreleased] → 版本小节此前无任何拦截)
+# ---------------------------------------------------------------------------
+
+ARCHIVED_SAMPLE = """# Changelog
+
+## [Unreleased]
+
+### Added
+
+- 新技能若干
+
+## [0.4.0] - 2026-09-24
+
+### Added
+
+- 旧内容
+
+## [0.3.0] - 2026-09-21
+
+### Fixed
+
+- 更旧内容
+"""
+
+
+def test_changelog_gate_flags_unarchived_release():
+    """发版号已改成 0.5.0,但 [Unreleased] 还没归档成 `## [0.5.0] - 日期`:
+    GitHub Release 正文与 PyPI 描述会说谎,必须拦。"""
+    problems = consistency._changelog_archive_problems(ARCHIVED_SAMPLE, "0.5.0")
+    assert any("0.5.0" in p for p in problems), f"未归档被放过: {problems}"
+
+
+def test_changelog_gate_accepts_archived_release():
+    """正向对照:版本号已有小节即放行(否则门禁会把正确状态也判红)。"""
+    assert consistency._changelog_archive_problems(ARCHIVED_SAMPLE, "0.4.0") == []
+
+
+def test_changelog_gate_rejects_missing_or_invalid_date():
+    bad_date = ARCHIVED_SAMPLE.replace("## [0.4.0] - 2026-09-24", "## [0.4.0")
+    problems = consistency._changelog_archive_problems(bad_date, "0.4.0")
+    assert any("0.4.0" in p for p in problems), f"缺日期/畸形小节被放过: {problems}"
+
+    iso_but_impossible = ARCHIVED_SAMPLE.replace("2026-09-24", "2026-13-45")
+    problems = consistency._changelog_archive_problems(iso_but_impossible, "0.4.0")
+    assert any("2026-13-45" in p for p in problems), f"非法日期被放过: {problems}"
+
+
+def test_changelog_gate_reports_one_line_per_problem():
+    """问题串必须单行:`run_checks` 的报告是"每条问题一行",混进换行会让一条发现
+    在终端里裂成两行(畸形小节的 `raw` 正是这种串的来源)。"""
+    no_date = ARCHIVED_SAMPLE.replace("## [0.4.0] - 2026-09-24", "## [0.4.0]")
+    problems = consistency._changelog_archive_problems(no_date, "0.4.0")
+    assert problems, "缺日期必须报"
+    assert all("\n" not in p for p in problems), f"问题串跨行,报告格式被破坏: {problems}"
+
+
+def test_changelog_gate_rejects_duplicate_and_out_of_order_sections():
+    dup = ARCHIVED_SAMPLE + "\n## [0.3.0] - 2026-09-21\n\n### Fixed\n\n- 重复小节\n"
+    problems = consistency._changelog_archive_problems(dup, "0.4.0")
+    assert any("重复" in p for p in problems), f"重复小节被放过: {problems}"
+
+    unordered = (
+        "# Changelog\n\n## [Unreleased]\n\n## [0.3.0] - 2026-09-21\n\n### Fixed\n\n- 旧\n\n"
+        "## [0.4.0] - 2026-09-24\n\n### Added\n\n- 新\n"
+    )
+    problems = consistency._changelog_archive_problems(unordered, "0.4.0")
+    assert any("降序" in p for p in problems), f"小节乱序被放过: {problems}"
+
+
+def test_changelog_gate_registered_and_repo_passes():
+    """集成:门禁已登记进 CHECKS,且真实 CHANGELOG+VERSION 通过(防空转/假绿)。"""
+    names = [n for n, _ in consistency.CHECKS]
+    assert "CHANGELOG 已归档当前版本" in names, names
+    text = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert consistency._changelog_archive_problems(text, _version()) == []
+    archive_problems = [
+        p for p in consistency.run_checks() if "CHANGELOG" in p
+    ]
+    assert archive_problems == [], archive_problems
+
+
+# ---------------------------------------------------------------------------
+# 批次④-F15b:CHANGELOG 头部发布流程措辞必须与"单一来源 + 同步器"现实一致
+# ---------------------------------------------------------------------------
+
+
+def test_changelog_header_points_at_single_source_not_manual_edits():
+    """头部若还写"同步四处版本号"(手改清单),照做就会漏掉另外几处 —— 现实是改
+    VERSION 后由生成器同步 8 条版本字段与 5 个生成产物。"""
+    header = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]")[0]
+    assert "gen-host-artifacts.py" in header, "发布流程未指向版本同步器"
+    assert "同步四处版本号" not in header, "头部仍是手改口径"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))

@@ -20,6 +20,7 @@
 import json
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -469,6 +470,57 @@ def _check_npm_hooks_keep_exec_bit() -> "list[str]":
     return problems
 
 
+# 版本名与日期都禁止跨行:否则畸形小节(`## [0.4.0` 少个 `]`)会把后面的真小节一路吞掉,
+# 让"当前版本未归档"这种问题被"无小节"掩盖。
+CHANGELOG_HEADING = re.compile(r"^## \[(?P<ver>[^\]\n]+)\](?: - (?P<date>[^\s\n]+))?[ \t]*$", re.M)
+SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def _changelog_archive_problems(text: str, version: str) -> "list[str]":
+    """CHANGELOG 归档约束:①当前版本已有 `## [X.Y.Z] - YYYY-MM-DD` 小节;
+    ②版本小节不重复;③日期是真实 ISO 日期;④小节按版本降序(新发版紧跟 Unreleased)。
+
+    回归(第四轮 F15):发版流程里"[Unreleased] → 版本小节"这一步此前只写在散文里,
+    漏归档/错序/漏日期都没有信号,而 GitHub Release 正文与 PyPI 描述都取自这里。
+    """
+    sections = []
+    for m in CHANGELOG_HEADING.finditer(text):
+        ver = m.group("ver").strip()
+        if SEMVER.match(ver):  # [Unreleased] 等非版本小节不参与对拍
+            sections.append((ver, m.group("date"), m.group(0)))
+    if not sections:
+        # 空集也是失败:否则"小节被整体删掉"会让下面每条都静默通过
+        return ["CHANGELOG.md: 无任何已归档版本小节(门禁失去事实源)"]
+
+    problems = []
+    versions = [v for v, _d, _raw in sections]
+    if version not in versions:
+        problems.append(
+            f"CHANGELOG.md: 当前版本 {version} 没有 `## [{version}] - YYYY-MM-DD` 小节"
+            "([Unreleased] 未归档即发版,GitHub Release 正文会说谎)"
+        )
+    dups = sorted({v for v in versions if versions.count(v) > 1})
+    if dups:
+        problems.append(f"CHANGELOG.md: 版本小节重复 {dups}")
+    for _ver, date_str, raw in sections:
+        if not date_str:
+            problems.append(f"CHANGELOG.md: 小节 “{raw}” 缺发布日期")
+            continue
+        try:
+            date.fromisoformat(date_str)
+        except ValueError:
+            problems.append(f"CHANGELOG.md: 小节 “{raw}” 的日期不是有效 ISO 日期")
+    keys = [tuple(int(x) for x in v.split(".")) for v in versions]
+    if any(keys[i] <= keys[i + 1] for i in range(len(keys) - 1)):
+        problems.append("CHANGELOG.md: 版本小节未按降序排列(最新发版应紧跟 [Unreleased])")
+    return problems
+
+
+def _check_changelog_release_archived() -> "list[str]":
+    version = (REPO / "VERSION").read_text(encoding="utf-8").strip()
+    return _changelog_archive_problems(read("CHANGELOG.md"), version)
+
+
 CHECKS = (
     ("README 计数与事实源一致", _check_readme_counts),
     ("双语 README 技能覆盖完整", _check_readme_skill_coverage),
@@ -484,6 +536,7 @@ CHECKS = (
     ("npm 受管条目与同步器等价", _check_npm_managed_entries_match_sync),
     ("本地 marketplace source 以 ./ 开头", _check_marketplace_local_sources),
     ("npm 钩子保留可执行位", _check_npm_hooks_keep_exec_bit),
+    ("CHANGELOG 已归档当前版本", _check_changelog_release_archived),
 )
 
 
