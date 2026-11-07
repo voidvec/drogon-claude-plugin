@@ -1202,5 +1202,151 @@ def test_remove_legacy_layout_survives_undecodable_claude_md(tmp_path):
     assert any("CLAUDE.md" in s for s in skipped), f"应记为保留: skipped={skipped}"
 
 
+# ---------------------------------------------------------------------------
+# 回归(第四轮批次③ F8/V9):_copy_assets 落地后必须显式补钩子执行位
+# ---------------------------------------------------------------------------
+
+def test_copy_assets_chmods_hook_executables(tmp_path, monkeypatch):
+    """F8:shutil.copy2 的 mode 来自随包资产,而 wheel 是否保留 POSIX 执行位存疑
+    (V7 疑云,Windows 本地无从实证)。npm 侧 copyAssets 已按 P2 显式 chmod 兜底;
+    py 侧须对齐——不能指望源文件恰好带 x 位,落地即补。"""
+    src = tmp_path / "src"
+    (src / "hooks").mkdir(parents=True)
+    for name in ("hooks.json", "run-hook.cmd", "session-start", "post-tool-use", "posttooluse.py"):
+        (src / "hooks" / name).write_text("x", encoding="utf-8")
+    (src / "skills" / "drogon-foo").mkdir(parents=True)
+    (src / "skills" / "drogon-foo" / "SKILL.md").write_text("y", encoding="utf-8")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+
+    calls = []
+    monkeypatch.setattr(cli_mod.os, "chmod", lambda p, mode: calls.append((p, mode)))
+    cli_mod._copy_assets(src, dest)
+
+    # copy2 内部 copystat 也会调 os.chmod(源文件的 0o6xx/0o4xx),按 0o755 过滤只看兜底位补齐
+    chmodded = {p.relative_to(dest).as_posix() for p, mode in calls if mode == 0o755}
+    expected = {f"hooks/{name}" for name in ("run-hook.cmd", "session-start", "post-tool-use", "posttooluse.py")}
+    assert chmodded == expected, f"F8 复发:执行位补齐范围不符,实得 {sorted(chmodded)}"
+
+
+# ---------------------------------------------------------------------------
+# 回归(第四轮批次③ F9):崩溃孤儿 .old-<pid> 回收 + verify 提示
+# ---------------------------------------------------------------------------
+
+_STALE_PID = 999_999_999  # 只要不等于当前进程 pid 即可,不需要真实存活进程
+
+
+def test_install_reaps_stale_backup_orphans(tmp_path):
+    """F9:改名备份(.drogon-plugin.old-<pid> / 技能目录 .old-<pid>)只在当次安装
+    成功收尾时删除;进程被杀/断电留下的孤儿从此无人认领。下次安装应主动回收
+    非本次 pid 的残留。"""
+    import os
+
+    assert os.getpid() != _STALE_PID
+    p = _make_project(tmp_path)
+    stale_bundle = p / f".drogon-plugin.old-{_STALE_PID}"
+    stale_bundle.mkdir()
+    (stale_bundle / "sentinel.txt").write_text("旧内容", encoding="utf-8")
+    skills_base = p / ".agents" / "skills"
+    skills_base.mkdir(parents=True)
+    stale_skill = skills_base / f"drogon-create-controller.old-{_STALE_PID}"
+    stale_skill.mkdir()
+
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    assert not stale_bundle.exists(), "F9 复发:陈旧 bundle 备份未被回收"
+    assert not stale_skill.exists(), "F9 复发:陈旧技能目录备份未被回收"
+    assert (skills_base / "drogon-create-controller").is_dir(), "正常安装产物不受影响"
+
+
+def test_verify_reports_stale_backup_orphans(tmp_path, capsys):
+    """F9 尾项:verify 不主动删(避免误伤并发安装),但要提示残留,否则无人发现。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "claude") == 0
+    capsys.readouterr()
+    stale = p / f".drogon-plugin.old-{_STALE_PID}"
+    stale.mkdir()
+
+    rc = _run_cli("verify", "--target", str(p))
+    out = capsys.readouterr().out
+    assert rc == 0, f"陈旧备份只是提示项,不该让 verify 失败: {out}"
+    assert "old-" in out, f"verify 未提示残留备份: {out}"
+
+
+# ---------------------------------------------------------------------------
+# 回归(第四轮批次③ F11):仅剩 skipped 记录时安装戳应清零
+# ---------------------------------------------------------------------------
+
+
+def test_uninstall_converges_stamp_with_only_skipped_records(tmp_path):
+    """F11:用户在自有 AGENTS.md 上装 codex → skipped;卸载后 `_prune_stamp` 只看
+    存在性,把 skipped 记录留在戳里永不清零(戳文件残留)。"""
+    p = _make_project(tmp_path, with_user_agents=True)
+    assert _run_cli("install", "--target", str(p), "--host", "codex") == 0
+    stamp = json.loads((p / ".drogon-plugin-install.json").read_text(encoding="utf-8"))
+    assert stamp["instruction_files"].get("AGENTS.md") == "skipped", "前提:应记为 skipped"
+
+    assert _run_cli("uninstall", "--target", str(p), "--host", "codex") == 0
+    assert not (p / ".drogon-plugin-install.json").exists(), "只剩 skipped 记录时戳应随之清零"
+    assert (p / "AGENTS.md").read_text(encoding="utf-8") == "# 我的项目规则\n\n- 自有规则\n", "用户自有内容不动"
+
+
+# ---------------------------------------------------------------------------
+# 回归(第四轮批次③ F12):verify 逐技能查 SKILL.md / 宿主技能目录共存不误报
+# ---------------------------------------------------------------------------
+
+
+def test_verify_flags_skill_dir_missing_skill_md(tmp_path, capsys):
+    """F12①:空壳技能目录(SKILL.md 被删)此前目录计数不变,verify 静默放行;
+    npm 侧逐个查 SKILL.md,py 应对齐。
+
+    非 bundle 宿主(agents)的技能目录没有 v2 哈希账本兜底,是真正的缺口所在;
+    bundle 宿主(claude)的同类场景已被 `_drift_problems` 覆盖,不在此断言范围。
+    """
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    victim = p / ".agents" / "skills" / "drogon-create-controller" / "SKILL.md"
+    victim.unlink()
+    capsys.readouterr()
+
+    rc = _run_cli("verify", "--target", str(p))
+    out = capsys.readouterr().out
+    assert rc == 1, f"空壳技能目录仍通过(目录计数没变就是全绿?): {out}"
+    assert "agents—" in out, f"agents 宿主未被降级为 —: {out}"
+
+
+def test_host_artifact_ok_tolerates_foreign_skill_dirs(tmp_path):
+    """F12②:.agents/skills 与用户自有技能共存是常态,严格计数相等会把已装成功
+    的宿主长期误报为 —。"""
+    p = _make_project(tmp_path)
+    assert _run_cli("install", "--target", str(p), "--host", "agents") == 0
+    (p / ".agents" / "skills" / "my-own-skill").mkdir()
+
+    ok = cli_mod._host_artifact_ok(p, cli_mod.HOSTS["agents"])
+    assert ok, "F12 复发:共存的用户自有技能目录把 agents 宿主挤成未安装"
+
+
+# ---------------------------------------------------------------------------
+# 回归(第四轮批次③ F13):生成器显式 LF 写出
+# ---------------------------------------------------------------------------
+
+
+def test_gen_host_artifacts_writes_lf_only(tmp_path):
+    """F13:`Path.write_text` 默认文本模式在 Windows 把 "\n" 翻译成 "\r\n",
+    本机跑一次生成器,AGENTS.md/GEMINI.md 等就成了 CRLF —— sync-assets copy2
+    会把它带进发行资产。生成器必须显式按 LF 写。"""
+    out = tmp_path / "probe.txt"
+    gen._write_lf(out, "a\nb\nc\n")
+    assert out.read_bytes() == b"a\nb\nc\n", f"F13 复发:写出带 CRLF {out.read_bytes()!r}"
+
+
+def test_generated_repo_artifacts_are_lf_only():
+    """正向对照:真实仓库里已生成的宿主产物文件本身不得带 CRLF(否则本机跑一次
+    生成器就会污染发行资产,这条即回归)。"""
+    for rel in ("AGENTS.md", "GEMINI.md", "gemini-extension.json",
+                ".codex-plugin/plugin.json", ".agents/plugins/marketplace.json"):
+        raw = (REPO_ROOT / rel).read_bytes()
+        assert b"\r\n" not in raw, f"{rel} 含 CRLF,违反 F13"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))

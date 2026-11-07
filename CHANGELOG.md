@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+### Fixed — 第四轮批次③（钩子执行位 / 崩溃孤儿回收 / 戳收敛 / 逐技能校验 / 生成器换行符，报告 F8–F9、F11–F13）
+
+登记依据见 `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md` §3 批次③；逐条先见 RED 再修。
+
+- **钩子文件落地执行位**（F8/V9）：`_copy_assets` 用 `shutil.copy2`,mode 继承自随包资产,而 wheel 装进 `site-packages` 后是否保留 POSIX 执行位本地无从实证(V7 遗留疑云,Windows 无 x 位语义)。现在显式对 4 个钩子入口 `os.chmod 0o755`,与 npm 侧 P2 修复同口径(跨平台可断言的单元守卫 + `dev-smoke-test.py` 里新增 POSIX-only 落地检查,由 CI ubuntu/macos 给出 V9 实证结论)。
+- **崩溃孤儿 `*.old-<pid>` 回收**（F9）：批次①的改名备份只在当次安装成功收尾时删除;进程被 SIGKILL/断电留下的 `.drogon-plugin.old-<pid>`、`drogon-<skill>.old-<pid>` 此前永不回收。现在 `install` 开头主动清理非本次 pid 的陈旧项,`verify` 只提示不删除(避免撞上正在进行的换页)。
+- **安装戳 skipped 记录收敛**（F11）：`_prune_stamp` 此前只看文件存在性,把"skipped"(从未写过的用户自有文件)当资产留存——在用户已有 `AGENTS.md` 上装 codex 再卸载,戳以 `hosts:[], instruction_files:{AGENTS.md:"skipped"}` 残留项目里永不归零。现在 skipped 一律剔除,只剩 skipped 时戳随卸载一并删除。
+- **verify 逐技能查 SKILL.md / 宿主技能目录共存不误报**（F12）：`_skills_ok` 此前按目录计数相等判定,①空壳技能目录(SKILL.md 被删、目录还在)静默放行,与 npm 侧逐个查 SKILL.md 的口径不一致;②`.agents/skills` 这类宿主技能目录与用户自有技能共存是常态,严格相等会把已装成功的宿主长期误报成"—"。改为只核对随包技能名都在且各带 SKILL.md;bundle 私有 `skills/` 目录同步补 npm 同款逐目录报缺(哈希账本已能覆盖的场景不重复报,新增的用例覆盖非 bundle 宿主这条此前无人管的缺口)。顺带发现并修正更深的对账缺口:安装戳记录的宿主若产物坏了,此前只要任一宿主显示 ✅(哪怕只是共享 `AGENTS.md` 带来的假阳性)verify 就整体放行——现在逐条比对戳内 `hosts`,记录已装但实际不可用的宿主进 `problems`。
+- **生成器显式 LF 写出**（F13）：`gen-host-artifacts.py` 用文本模式 `write_text`,Windows 本机跑一次生成器,5 个宿主产物文件就成了 CRLF;`sync-assets.py` 用 `copy2` 原样搬运字节(不过 git 的 clean 过滤器),CRLF 一路带进 `npm/assets`、`drogon_plugin_assets`,连本地构建的 wheel 都受影响(发布走 ubuntu CI 重生成所以线上无恙,但本机诊断仍暴露)。生成/校验两处读取都改用 `newline=""` 原始比对,让已污染的文件能被"自愈"改写而非长期假绿;本仓库已污染的 5 个工作树文件已重生成为 LF。
+
 ### Fixed — 第四轮批次②（互操作顺序 / upgrade 范围 / 解码泄漏 / 双语矩阵，报告 F5–F7、F10）
 
 - **npm uninstall 判定前置**（F5）：旧顺序"先删 `.drogon-plugin` 后读 v3 戳"会把混合安装（如 claude+agents）的 bundle 删掉，留下 bundle 缺失而戳宣称 claude/zcode 已装的说谎状态。现在先判账本：无戳（npm 自装自卸）或纯 bundle → bundle+戳全清；混合/损坏戳 → **bundle、legacy、戳一概不动**，提示交由 PyPI CLI 收尾（含损坏戳正向对照测试）。

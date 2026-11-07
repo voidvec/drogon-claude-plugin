@@ -8,6 +8,7 @@
 所有子进程调用均为显式参数列表 + shell=False，不经过任何 shell。
 """
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,17 @@ def main() -> int:
     if own_md.read_text(encoding="utf-8") != "# 我的项目\n":
         print("❌ 安装覆盖了项目自有 CLAUDE.md")
         return 1
+
+    # 回归(第四轮批次③ V9):钩子文件落地后必须带 POSIX 执行位。pip 装的 wheel
+    # 是否保留源文件 x 位,Windows 本地无从实证,靠这一步在 ubuntu/macos CI 给出
+    # 决定性答案(_copy_assets 现已显式补 0o755,与 npm 侧 P2 同法)。
+    if os.name != "nt":
+        for rel in ("run-hook.cmd", "session-start", "post-tool-use", "posttooluse.py"):
+            f = plugin / "hooks" / rel
+            if not f.stat().st_mode & 0o111:
+                print(f"❌ 钩子不可执行(0o111 位缺失):hooks/{rel}")
+                return 1
+        print("✅ POSIX 执行位检查通过(V9)")
 
     # verify
     rc, out = run(["verify", "--target", str(target)])
