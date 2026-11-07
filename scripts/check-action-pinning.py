@@ -111,6 +111,9 @@ def audit(entries, refs_by_repo, errors=None) -> "list[str]":
     entries: [(path, lineno, repo, sha, comment)];
     refs_by_repo: {repo: {ref 名: sha}};errors: {repo: 取回失败说明} —— 取不回就红,
     供应链门禁不能因为网络抖动静默放行。
+
+    注释里常同时提到新旧版本(`bumped from v4.3.0 to v4.4.0`),所以判据是"钉住的 SHA
+    对应**至少一个**声称版本";全都不对应才红 —— 单取首个 token 会把这种正常注记判成假红。
     """
     errors = errors or {}
     problems = []
@@ -119,23 +122,29 @@ def audit(entries, refs_by_repo, errors=None) -> "list[str]":
         if repo in errors:
             problems.append("%s: 无法核实 %s 的上游 refs(%s)" % (loc, repo, errors[repo]))
             continue
-        m = CLAIM.search(comment or "")
-        if not m:
+        claims = CLAIM.findall(comment or "")
+        if not claims:
             problems.append("%s: 注释无可解析版本号,无从比对 SHA 对应关系" % loc)
             continue
-        claim = m.group(1)
         refs = refs_by_repo.get(repo, {})
-        if claim not in refs:
+        known = [c for c in claims if c in refs]
+        if not known:
             problems.append(
-                "%s: 注释声称 %s@%s,但上游没有该 tag/分支(可能已删、拼错或只是分支名)"
-                % (loc, repo, claim)
+                "%s: 注释声称 %s@%s,但上游没有这些 tag/分支(可能已删、拼错或只是分支名)"
+                % (loc, repo, "/".join(claims))
             )
             continue
-        if refs[claim] != sha:
-            actual = sorted(n for n, s in refs.items() if s == sha and "." in n)
+        if not any(refs[c] == sha for c in known):
+            actual = sorted(n for n, s in refs.items() if s == sha)
             problems.append(
-                "%s: 注释声称 %s@%s,但该 SHA 实际对应 %s(上游 %s = %s)"
-                % (loc, repo, claim, actual or "无同名 ref", claim, refs[claim])
+                "%s: 注释声称 %s,但钉住的 SHA 与其中任何一个都不对应(上游:%s;"
+                "该 SHA 实际对应:%s)"
+                % (
+                    loc,
+                    "/".join(claims),
+                    ", ".join("%s=%s" % (c, refs[c]) for c in known),
+                    "/".join(actual) or "无同名 ref",
+                )
             )
     return problems
 
@@ -159,6 +168,10 @@ def main() -> int:
             pass
 
     entries = collect_offline_entries()
+    if not entries:
+        print("❌ 未解析到任何 SHA 固定的 action 引用 —— 守卫空转(workflow 目录改名或"
+              "引用形态漂出解析面),请检查解析面而不是当作通过")
+        return 1
     if "--offline" in sys.argv:
         for path, lineno, repo, sha, comment in entries:
             print("%s:%d %s @ %s%s" % (path, lineno, repo, sha[:12], "  # " + comment if comment else ""))

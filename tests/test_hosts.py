@@ -1478,6 +1478,46 @@ def test_changelog_gate_rejects_duplicate_and_out_of_order_sections():
     assert any("降序" in p for p in problems), f"小节乱序被放过: {problems}"
 
 
+def test_changelog_gate_keeps_nonstandard_headings_in_scope():
+    """小节头一旦偏离 `## [X.Y.Z] - YYYY-MM-DD`(尾注 [YANKED]、日期前无空格、紧凑
+    日期),整节就从"重复/乱序/缺日期"的对拍集合里静默消失——历史小节这样写即可绕过
+    门禁。现在凡 `## [语义化版本]` 都进集合:尾注容忍,日期形态不符即问题。"""
+    yanked = "## [0.4.0] - 2026-09-24\n## [0.6.0] - 2026-11-01 [YANKED]\n"
+    assert any("降序" in p for p in consistency._changelog_archive_problems(yanked, "0.4.0")), yanked
+
+    dup = "## [0.4.0] - 2026-09-24\n## [0.4.0] - 2026-09-24 [YANKED]\n"
+    assert any("重复" in p for p in consistency._changelog_archive_problems(dup, "0.4.0")), dup
+
+    nospace = "## [0.4.0]-2026-09-24\n## [0.6.0]-2026-11-01\n"
+    assert any("降序" in p for p in consistency._changelog_archive_problems(nospace, "0.4.0")), nospace
+
+    compact = "## [0.4.0] - 20260924\n"
+    problems = consistency._changelog_archive_problems(compact, "0.4.0")
+    assert any("20260924" in p for p in problems), f"紧凑日期须判畸形(且不能随解释器版本变结论): {problems}"
+
+
+def test_changelog_gate_flags_all_sections_removed():
+    """假绿防线:小节被整体删掉时,"无重复/无乱序/不缺日期"会一起静默通过。"""
+    problems = consistency._changelog_archive_problems(
+        "# Changelog\n\n## [Unreleased]\n\n- 只剩未归档\n", "0.4.0"
+    )
+    assert any("无任何已归档" in p for p in problems), problems
+
+
+def test_changelog_header_counts_match_generator():
+    """头部的"同步 N 条版本字段 + M 个生成产物"是说给人照着发的,数字写错即指引说谎
+    (实测曾写 8 而 SYNC_RULES 实为 7)——数字必须与生成器实数对拍,不能只查措辞。"""
+    header = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]")[0]
+    n_fields = int(re.search(r"(\d+)\s*条版本字段", header).group(1))
+    n_outputs = int(re.search(r"(\d+)\s*个生成产物", header).group(1))
+    assert n_fields == len(gen.SYNC_RULES), (
+        f"头部写 {n_fields} 条版本字段,生成器实为 {len(gen.SYNC_RULES)} 条"
+    )
+    src = (REPO_ROOT / "scripts" / "gen-host-artifacts.py").read_text(encoding="utf-8")
+    declared = len(re.findall(r'^\s+"([^"]+)":', re.search(r"outputs = \{(.*?)\n    \}", src, re.S).group(1), re.M))
+    assert n_outputs == declared, f"头部写 {n_outputs} 个生成产物,生成器实为 {declared} 个"
+
+
 def test_changelog_gate_registered_and_repo_passes():
     """集成:门禁已登记进 CHECKS,且真实 CHANGELOG+VERSION 通过(防空转/假绿)。"""
     names = [n for n, _ in consistency.CHECKS]
@@ -1497,7 +1537,8 @@ def test_changelog_gate_registered_and_repo_passes():
 
 def test_changelog_header_points_at_single_source_not_manual_edits():
     """头部若还写"同步四处版本号"(手改清单),照做就会漏掉另外几处 —— 现实是改
-    VERSION 后由生成器同步 8 条版本字段与 5 个生成产物。"""
+    VERSION 后由生成器一次性同步全部版本字段与宿主产物(具体条数由
+    test_changelog_header_counts_match_generator 与生成器实数对拍,这里不重复写死)。"""
     header = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]")[0]
     assert "gen-host-artifacts.py" in header, "发布流程未指向版本同步器"
     assert "同步四处版本号" not in header, "头部仍是手改口径"

@@ -2,7 +2,7 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-发布流程：**把 `[Unreleased]` 归档为 `## [X.Y.Z] - YYYY-MM-DD` → 改 `VERSION`（版本号唯一事实源）→ `python scripts/gen-host-artifacts.py` 同步其余各处（8 条版本字段 + 5 个生成产物；勿手改任何清单版本号）→ 过门禁（`gen-host-artifacts.py --check`、`check-consistency.py`（含 CHANGELOG 归档项）、`pytest tests/`）→ 提交 → 打 tag `vX.Y.Z` 推送**（tag 名必须与 `VERSION` 一致，publish.yml 已加断言），CI 自动发布 PyPI + npm + GitHub Release。
+发布流程：**把 `[Unreleased]` 归档为 `## [X.Y.Z] - YYYY-MM-DD` → 改 `VERSION`（版本号唯一事实源）→ `python scripts/gen-host-artifacts.py` 同步其余各处（7 条版本字段 + 5 个生成产物；勿手改任何清单版本号）→ 过门禁（`gen-host-artifacts.py --check`、`check-consistency.py`（含 CHANGELOG 归档项）、`pytest tests/`）→ 提交 → 打 tag `vX.Y.Z` 推送**（tag 名必须与 `VERSION` 一致，publish.yml 已加断言），CI 自动发布 PyPI + npm + GitHub Release。
 
 ## [Unreleased]
 
@@ -11,9 +11,9 @@
 登记依据见 `docs/ROUND4-INCREMENTAL-CORRECTNESS-REVIEW.md` §3 批次④；逐条先见 RED 再修。
 
 - **flow-mapping 写法的 `uses:` 不再漏抓**（F14）：`test_ci_pinning` 的行解析只认块式 `- uses:` / `uses:`,而 `- {uses: actions/checkout@v4}` 是等价合法 YAML(GitHub 照样解析成引用)——未固定的引用正好可以藏在这个形态里带着 secrets 跑 CI。现识别 flow 上下文并把值切到首个 `,`/`}`/`]`(后继键或容器闭合)为止,配端到端对照"把 flow 形态塞进 workflow 必须报出 offender,而不是安静放行"。**评审前提证伪部分**:报告里"大写 `USES:` 绕过"一条经核实不成立(Actions 键名大小写敏感,`USES:` 不是合法键),因此只做流式形态这一半。
-- **SHA 钉住与注释版本对应性校验**（F14）：离线守卫只能证明"固定行后面写了个版本号",证明不了那个版本号确实指向这个 SHA——注释说谎、把 tag 挪去别的提交、或升级时只改 SHA 不改注释,此前全程无信号。新增 `scripts/check-action-pinning.py` 作为该校验的唯一实现(测试与 CI 共用):按仓库 `git ls-remote` 取全量 refs(附注 tag 的 `^{}` 提交对象优先于 tag 对象),把每条固定行的 SHA 与行尾声称的 tag/分支比对,报四类问题(无法核实/注释无版本号/上游无该 ref/SHA 不对应)。refs 取不回时 **fail-closed** 报错而非静默跳过。CI 侧挂独立作业 `Action pinning audit (ubuntu)` 单点出网,避免 9 个矩阵作业各刷一遍上游 refs。本地实跑:12 条固定引用(5 个上游仓库)全部对应。dependabot 按评审决定**不引入**。
-- **CHANGELOG 归档门禁**（F15）：`[Unreleased]` → `## [X.Y.Z] - 日期` 这一步此前只写在发布流程散文里,漏归档、日期缺失、`2026-13-45` 这类非法日期、小节重复、小节乱序都没有任何信号——而 GitHub Release 正文与 PyPI 描述都取自这里。`check-consistency` 新增第 15 项"CHANGELOG 已归档当前版本"(版本从 `VERSION` 单一来源读),含"小节被整体删掉也要红"的假绿防线;注入漂移(删掉 ` - 2026-09-24`)实测见红。顺带修掉解析器一个自我削弱:版本捕获原本允许跨行,畸形小节 `## [0.4.0` 会把后面真小节一路吞掉,使"当前版本未归档"伪装成"无任何小节"。
-- **CHANGELOG 头部发布流程措辞**（F15）：原写"同步四处版本号(`plugin.json`/`__init__.py`/`pyproject.toml`/`npm/package.json`)",照做会漏掉另外几处——现实是版本单一来源 `VERSION`,一条 `python scripts/gen-host-artifacts.py` 同步 8 条版本字段与 5 个生成产物。头部改为完整链路(归档 → 改 VERSION → 同步器 → 门禁 → tag),并配守卫防止再漂回手改口径。
+- **SHA 钉住与注释版本对应性校验**（F14）：离线守卫只能证明"固定行后面写了个版本号",证明不了那个版本号确实指向这个 SHA——注释说谎、把 tag 挪去别的提交、或升级时只改 SHA 不改注释,此前全程无信号。新增 `scripts/check-action-pinning.py` 作为该校验的唯一实现(测试与 CI 共用):按仓库 `git ls-remote` 取全量 refs(附注 tag 的 `^{}` 提交对象优先于 tag 对象),把每条固定行的 SHA 与行尾声称的 tag/分支比对,报四类问题(无法核实/注释无版本号/上游无这些 ref/SHA 与任一声称版本都不对应)。判据是"SHA 至少对应**一个**声称版本"——人写升级注记常同时出现新旧版本号(`bumped from v4.3.0 to v4.4.0`),只取首个 token 会把正常注记判成假红(评审实证),而整条注释说谎时全不对应仍判红。refs 取不回时 **fail-closed** 报错而非静默跳过;一条固定引用都没解析到时同样判红(守卫空转不等于通过)。CI 侧挂独立作业 `Action pinning audit (ubuntu)` 单点出网,避免 9 个矩阵作业各刷一遍上游 refs。本地实跑:12 条固定引用(5 个上游仓库)全部对应。dependabot 按评审决定**不引入**。
+- **CHANGELOG 归档门禁**（F15）：`[Unreleased]` → `## [X.Y.Z] - 日期` 这一步此前只写在发布流程散文里,漏归档、日期缺失、`2026-13-45` 这类非法日期、小节重复、小节乱序都没有任何信号——而 GitHub Release 正文与 PyPI 描述都取自这里。`check-consistency` 新增第 15 项"CHANGELOG 已归档当前版本"(版本从 `VERSION` 单一来源读),含"小节被整体删掉也要红"的假绿防线;在真实 CHANGELOG 上把 `## [0.4.0] - 2026-09-24` 改成 `## [0.4.0]` 注入漂移,端到端见红后已还原。评审补漏两处解析缺陷:①版本捕获原本允许跨行,畸形小节 `## [0.4.0` 会把后面真小节一路吞掉,使"当前版本未归档"伪装成"无任何小节";②小节头只要写法偏离规范(`## [0.3.0] - 2026-10-01 [YANKED]`、`## [0.4.0]-2026-09-24` 无空格、`20260924` 紧凑日期)就整行不匹配,那节会**静默退出**重复/乱序对拍——历史小节靠这个能绕过门禁,现改为凡 `## [语义化版本]` 都进集合、日期只认 `YYYY-MM-DD` 字面形态(顺手消掉 `fromisoformat` 在 3.9 与 3.11+ 对紧凑日期结论不一致的档位漂移)。
+- **CHANGELOG 头部发布流程措辞**（F15）：原写"同步四处版本号(`plugin.json`/`__init__.py`/`pyproject.toml`/`npm/package.json`)",照做会漏掉另外几处——现实是版本单一来源 `VERSION`,一条 `python scripts/gen-host-artifacts.py` 同步 7 条版本字段与 5 个生成产物。头部改为完整链路(归档 → 改 VERSION → 同步器 → 门禁 → tag),并配守卫防止再漂回手改口径。**评审实证**:首版把条数写成 8(实为 7 条规则、涉 6 文件,`__init__.py` 占两条),而措辞守卫只查关键词不查数字——现新增"头部数字与 `len(SYNC_RULES)`、生成产物字典实数对拍"的测试,数字再错就是红。
 
 ### Fixed — 第四轮批次③（钩子执行位 / 崩溃孤儿回收 / 戳收敛 / 逐技能校验 / 生成器换行符，报告 F8–F9、F11–F13）
 
