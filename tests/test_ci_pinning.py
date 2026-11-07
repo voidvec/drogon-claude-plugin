@@ -168,6 +168,31 @@ def test_audit_fails_closed_when_remote_unreachable():
     assert any("无法核实" in p for p in problems), problems
 
 
+def test_audit_accepts_comment_mentioning_several_versions():
+    """升级注记里新旧版本号同时出现(`bumped from v4.3.0 to v4.4.0`)是人写注释的
+    常态:钉住的 SHA 只要对应其中**任一**声称版本就该放行,否则审计作业会假红。"""
+    problems = pinning.audit(_entry(comment=" bumped from v4.3.0 to v4.4.0"), REFS)
+    assert problems == [], problems
+
+
+def test_audit_flags_comment_when_no_claimed_version_matches():
+    """反向对照:注记提到多个版本但没有一个对应钉住的 SHA(整条注释说谎)仍必须红,
+    并把所有声称版本都列出来,便于判断是漏改还是改错。"""
+    pinned = "3" * 40  # 上游没有任何 ref 指向它
+    problems = pinning.audit(_entry(sha=pinned, comment=" bumped from v4.4.0 to v4.3.0"), REFS)
+    assert len(problems) == 1, problems
+    assert "v4.4.0" in problems[0] and "v4.3.0" in problems[0], problems[0]
+    assert "不对应" in problems[0], problems[0]
+
+
+def test_main_fails_closed_when_nothing_parsed(monkeypatch, capsys):
+    """审计作业不能因为"一条固定引用都没解析到"就静默绿(workflow 目录改名、
+    引用形态整体漂出解析面都会这样)。"""
+    monkeypatch.setattr(pinning, "collect_offline_entries", lambda: [])
+    assert pinning.main() == 1
+    assert "解析到" in capsys.readouterr().out, "红得要说清原因"
+
+
 def test_parse_ls_remote_prefers_dereferenced_annotated_tag():
     """附注 tag 在 ls-remote 里有两行(tag 对象 + ^{} 提交对象),钉的是提交 SHA;
     取错一行会让每条固定行都假红。"""
