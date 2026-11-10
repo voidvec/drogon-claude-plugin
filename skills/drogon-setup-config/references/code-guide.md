@@ -7,9 +7,9 @@
 - `listen_address`: 监听地址（默认 `127.0.0.1`）
 - `listen_port`: 监听端口（必需）
 - `enable_https`: 是否启用 SSL（默认 `false`）
-- `enable_session`: 是否启用会话（默认 `true`）
-- `number_of_threads`: 事件循环线程数（默认 `0`）
-- `log_level`: 日志级别（默认 `INFO`）
+- `enable_session`: 是否启用会话（默认 `true`；**drogon 自身默认是 `false`**，`ConfigLoader.cc:266`——本技能按"生成 Web 服务"场景抬高为 true，生成时必须显式写出该键）
+- `number_of_threads`: 事件循环线程数（默认 `0`；drogon 侧键优先级为 `threads_num` → 缺省 1，仅当 `threads_num` 为 1 时才读 `number_of_threads`，`ConfigLoader.cc:251-255`）
+- `log_level`: 日志级别（本技能默认 `INFO`；**drogon 只认 `TRACE`/`DEBUG`/`INFO`/`WARN`**，源码默认 `DEBUG`，`ConfigLoader.cc:168-184`——写 `ERROR`/`FATAL` 不报错，但也**不会**调用 `setLogLevel`，级别停在 trantor 的内建默认档）
 
 ## JSON 模板
 
@@ -28,7 +28,8 @@
     "session_timeout": 1200,
     "log": {
       "log_path": "./logs",
-      "logfile_size": 104857600,
+      "log_size_limit": 104857600,
+      "max_files": 0,
       "log_level": "${log_level}"
     }
   }
@@ -48,7 +49,8 @@ app:
   session_timeout: 1200
   log:
     log_path: ./logs
-    logfile_size: 104857600
+    log_size_limit: 104857600
+    max_files: 0
     log_level: ${log_level}
 ```
 
@@ -78,8 +80,10 @@ app:
 
 ## 配置项语义（高频陷阱）
 
-- `listeners[].https` 必须是**布尔** `true/false`（不是字符串）；HTTPS 监听需同时提供 `cert` / `key`（`ConfigLoader.cc:651-652`）。顶层另有全局 `ssl` 块（`ConfigLoader.cc:705`）。
+- `listeners[].https` 必须是**布尔** `true/false`（不是字符串）；HTTPS 监听需同时提供 `cert` / `key`（`ConfigLoader.cc:652-653`）。顶层另有全局 `ssl` 块（`ConfigLoader.cc:705`）。
 - `client_max_body_size`：请求体上限，值为**字符串**如 `"1M"`/`"20M"`（`ConfigLoader.cc:467`），文件上传场景必须调大；等价代码 API 为 `app().setClientMaxBodySize(bytes)`。
+  - ⚠️ 该值经 `bytesSize()` 解析（`ConfigLoader.cc:43-106`）：末位是 `K/M/G/T`（大小写都可）时换算成字节，末位是数字时按纯字节数接受——**但数字白名单少了 `'6'`**（`:78-86` 逐个列 `0-5`、`7-9`，漏了 `6`）。于是纯数字且以 6 结尾的值（如 `"1048576"` = 1M）会 `return false` 并抛 `std::runtime_error("Error format of client_max_body_size")`，配置直接加载失败；写成 JSON 数字 `1048576` 也一样（jsoncpp 的 `asString()` 会把 int 转成十进制字符串，并非空串）。**生成时统一带 `K`/`M`/`G` 后缀**（`"1M"` 而不是 `"1048576"`）即可绕开这个上游缺陷。
+  - 只有**空串**（即 JSON `null`，`asString()` 返回 `""`）才是不限（`:45-48` 把 `size` 置为 `size_t(-1)`）；不要指望"填数字类型就自动不限"。
 - 连接数上限键是 `max_connections` / `max_connections_per_ip`（**不是** `max_connection_num`）。
 - **禁止**错误键名：`threads`、`num_threads`、`enable_sessions`（正确是 `enable_session`）、`max_connection_num`。
 - **禁止**把布尔值写成字符串。
@@ -224,7 +228,7 @@ for (const auto &cred : custom["credentials"])
 
 `app().loadConfigJson(const Json::Value &)` / `loadConfigJson(Json::Value &&)`（`HttpAppFramework.h:469`/`:479`）接受与配置文件同构的 JSON 对象；两者均 `noexcept(false)`——**同样会抛异常，必须 try/catch**。
 
-pay-plugin（`examples/pay-server/main.cc`）验证过的完整模式：先 `.env` 进环境，再读 `config.json`、替换 `__env_var:VAR__` 占位符，最后 `loadConfigJson(std::move(json))`：
+下述模式（源自 pay-plugin；它是私有仓库，且 drogon v1.9.13 的 `examples/` 下**没有** `pay-server` 目录，故不给行号坐标，只保留下方可自证的最小样例）：先 `.env` 进环境，再读 `config.json`、替换 `__env_var:VAR__` 占位符，最后 `loadConfigJson(std::move(json))`：
 
 ```cpp
 #include <drogon/drogon.h>
@@ -314,7 +318,11 @@ apps/server/config/
 
 ## 错误处理
 
+以下是**本技能**对入参的校验（`format` / `listen_port` / `log_level` 都是技能参数，不是 drogon 的键名）：
+
 - `format` 不是 `json` 或 `yaml`：返回错误消息
 - `listen_port` 不是有效的端口号：返回错误消息
 - `log_level` 不是有效的日志级别：返回错误消息
 - 文件写入失败：返回错误消息
+
+drogon 侧**不会**替你做这个校验：`ConfigLoader.cc:168` 取 `log_level`（源码默认 `DEBUG`），`:169-184` 只匹配 `TRACE`/`DEBUG`/`INFO`/`WARN` 四个串，没有 `else` 分支也没有 `ERROR`/`FATAL` 分支——写了 `ERROR` 时 `setLogLevel` 根本不会被调用，级别停在 trantor 的内建默认，且不报任何错。所以非法值必须在生成配置时就拦下来。

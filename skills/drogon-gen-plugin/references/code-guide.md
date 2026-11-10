@@ -38,7 +38,7 @@ class ${plugin_name} : public drogon::Plugin<${plugin_name}> {
     ]
   }
   ```
-- **初始化时机**：`initAndStart()` 在 `app().run()` **之前**被**同步**调用。**禁止**在其中做阻塞操作（会阻塞框架启动，与"事件循环线程不可阻塞"一致）；耗时初始化走 `std::async` 或独立线程。
+- **初始化时机**：`initAndStart()` 不是在 `app().run()` 之前调的，而是在 **`app().run()` 内部**、事件循环尚未启动之前被**同步**调用（`HttpAppFrameworkImpl::run()`：`pluginsManagerPtr_->initializeAllPlugins(...)` 在 `HttpAppFrameworkImpl.cc:663`，它内部经 `PluginsManager.cc:85` → `PluginBase::initialize()`（`plugins/Plugin.h:40-63`，第 49 行同步调 `initAndStart(config_)`）；`ioLoopThreadPool_->start()` 在 `:688`，`getLoop()->loop()` 在 `:689`）。两个后果：①在 `initAndStart` 里 `getLoop()->queueInLoop(...)` / `runAfter(...)` 只是入队，要等 `loop()` 起来才执行；②`app().run()` 之前插件根本还不存在，**禁止**在 `main()` 里 `run()` 之前手动初始化插件。同时**禁止**在 `initAndStart` 中做阻塞操作（会拖住框架启动）；耗时初始化走 `std::async` 或独立线程。
 - **获取实例**：业务代码用 `app().getPlugin<${plugin_name}>()` 获取单例。**禁止**手动 `new` Plugin。
 - 证据：`plugins/Plugin.h:67-71`
 
@@ -49,7 +49,7 @@ class ${plugin_name} : public drogon::Plugin<${plugin_name}> {
 1. **构造**：`run()` 内 `initializeAllPlugins`（`HttpAppFrameworkImpl.cc:663-675`）先按配置数组逐个 `createPlugin(name)`——经 `DrClassMap::newSharedObject` 反射构造（`PluginsManager.cc:90-100`），全部构造完再进入下一步。
 2. **依赖解析**：每个插件 `setConfig(config)` 后处理 `dependencies` 数组，`addDependency` 建立依赖边（`PluginsManager.cc:56-75`）；**依赖的插件未在配置中声明会 `LOG_FATAL` + `abort`**（`PluginsManager.cc:70-72`）。
 3. **initialize（深度优先）**：按声明顺序调 `plugin->initialize()`（`PluginsManager.cc:82-87`）；`initialize()` 先递归初始化依赖再调 `initAndStart(config_)`，循环依赖直接 `LOG_FATAL` + `abort`（`Plugin.h:40-63`）。
-4. **run 阶段可用资源**：`initAndStart` 执行时，DB/Redis 客户端已经建好——`run()` 里 `createDbClients`/`createRedisClients`（`HttpAppFrameworkImpl.cc:636-637`）在 `initializeAllPlugins`（`:663`）**之前**；因此在 `initAndStart` 内 `app().getDbClient()` 可用（pay-plugin `PayPlugin.cc:107` 实测）。但普通业务代码在 `run()` 之前**不可**取客户端。
+4. **run 阶段可用资源**：`initAndStart` 执行时，DB/Redis 客户端已经建好——`run()` 里 `createDbClients`/`createRedisClients`（`HttpAppFrameworkImpl.cc:631-632`）在 `initializeAllPlugins`（`:663`）**之前**；因此在 `initAndStart` 内 `app().getDbClient()` 可用（pay-plugin `PayPlugin.cc:107` 实测）。但普通业务代码在 `run()` 之前**不可**取客户端。
 5. **BeginningAdvice 阶段**：所有插件初始化完成后，路由 init，随后 `getLoop()->queueInLoop` 依次执行全部 BeginningAdvice，最后 `startListening()`（`HttpAppFrameworkImpl.cc:676-686`）——见下文「初始化时序」。
 6. **shutdown()**：应用退出时 `app().quit()` 在主循环内按初始化**逆序**销毁各组件（`HttpAppFrameworkImpl.cc:1034-1056`）：`stopListening` → 路由 reset → **`pluginsManagerPtr_.reset()`（触发 `~PluginsManager` 按初始化逆序逐个调 `shutdown()`，`PluginsManager.cc:20-29`）** → Redis/DB manager reset → loop quit。两个推论：
    - `shutdown()` 里**仍可安全使用** DB/Redis 客户端做最后清理（它们的销毁在插件之后）；
@@ -261,7 +261,7 @@ int main()
 
 ## 初始化时序：plugin initialize 与 BeginningAdvice
 
-源码顺序（`HttpAppFrameworkImpl.cc:636-686`）：`createDbClients/createRedisClients` → **所有插件 `initAndStart`** → 路由 init → **BeginningAdvice 依次执行** → `startListening()`。authforge 全项目 15 处 `registerBeginningAdvice`（main.cc 8 处 + 库层 7 处）沉淀出的分工：
+源码顺序（`HttpAppFrameworkImpl.cc:631-686`）：`createDbClients/createRedisClients` → **所有插件 `initAndStart`** → 路由 init → **BeginningAdvice 依次执行** → `startListening()`。authforge 全项目 15 处 `registerBeginningAdvice`（main.cc 8 处 + 库层 7 处）沉淀出的分工：
 
 **放在插件 `initAndStart` 里**（客户端可用、无需完整路由表）：
 - 建 DB/Redis 客户端引用、构造服务对象（pay-plugin 全部在 initAndStart 内完成）

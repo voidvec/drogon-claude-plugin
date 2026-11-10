@@ -18,9 +18,9 @@ license: MIT
 - `listen_address`: 监听地址（如 `0.0.0.0`，默认 `127.0.0.1`）
 - `listen_port`: 监听端口（如 `8080`）
 - `enable_https`: 是否启用 SSL（`true`/`false`，默认 `false`）
-- `enable_session`: 是否启用会话（`true`/`false`，默认 `true`）
+- `enable_session`: 是否启用会话（`true`/`false`，本技能默认 `true`；drogon 自身默认 `false`，必须显式写出）
 - `number_of_threads`: 事件循环线程数（`0` = CPU 硬件并发数）
-- `log_level`: 日志级别（`DEBUG`/`INFO`/`WARN`/`ERROR`，默认 `INFO`）
+- `log_level`: 日志级别（只认 `TRACE`/`DEBUG`/`INFO`/`WARN`；本技能默认 `INFO`，**drogon 自身默认 `DEBUG`**，`ConfigLoader.cc:168`。`ERROR`/`FATAL` 不是合法取值，写了不报错、只是被静默忽略）
 
 ## 输出
 

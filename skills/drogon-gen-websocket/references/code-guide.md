@@ -116,7 +116,8 @@ void ChatWS::handleNewMessage(const WebSocketConnectionPtr &conn, std::string &&
 }
 ```
 
-- 大消息：消息**整条**驻留内存后才递交（parser 无应用层分片），且无消息大小上限配置（核对不存在 `setWebSocketMaxMessageSize` 类 API）；广播 N 连接 × 大消息会内存放大——大负载走应用层分片 + `Binary`。
+- 大消息：消息**整条**驻留内存后才递交（parser 无应用层分片）；上限**可配**——`app().setClientMaxWebSocketMessageSize(size)`（`lib/inc/drogon/HttpAppFramework.h:1301`，成员默认 `128 * 1024`，`lib/src/HttpAppFrameworkImpl.h:742`），配置文件里是 `app.client_max_websocket_message_size`，取值为 `"128K"` 这类字符串（`ConfigLoader.cc:487-491` 交 `bytesSize()` 解析，解析失败时 `:495-496` 抛 `std::runtime_error("Error format of client_max_websocket_message_size")`）。`bytesSize()`（`:43-106`）认 `K/M/G/T` 后缀各自换算，也认以数字结尾的纯字节数——⚠️ 但它的数字白名单**漏了 `'6'`**（`:78-86` 只列 `0-5`、`7-9`），所以 `"1048576"` 这种以 6 结尾的纯数字值会让配置直接加载失败；写 `"1M"` 这类带后缀的形态即可避开。
+  - ⚠️ 该上限**只卡入站**：检查在 `if (isMasked != 0)` 分支里（`lib/src/WebSocketConnectionImpl.cc:371-379`，超限打 `The size of the WebSocket message is too large!` 并让 parse 返回 false）。服务端自己 `send()` 的大帧不受这个值约束，别把它当内存护栏用——广播 N 连接 × 大消息照样内存放大，大负载走应用层分片 + `Binary`。
 - 主动关闭：`conn->shutdown(CloseCode, reason)`（优雅，发 Close 帧，:149-150；`CloseCode` 枚举 :27-86，如 `kNormalClosure`=1000、`kViolation`=1008）/ `conn->forceClose()`（:153）。
 
 ## 禁止模式清单

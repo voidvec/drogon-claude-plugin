@@ -9,7 +9,7 @@ Extract from user input:
 
 ## 禁止模式清单
 
-- `session->operator[](key)` — returns `std::any&`, needs `any_cast`, error-prone. Use `getOptional<T>()` or `modify<T>()`. (Session.h)
+- `session->operator[](key)` — Session.h 里**根本没有 `operator[]`**，这样写编译不过（不是"能跑但危险"）。这个误解的来源是 `HttpViewData`：它才有 `std::any &operator[]`（HttpViewData.h:130），Session 没有。读用 `getOptional<T>()`/`get<T>()`，写用 `modify<T>()`。
 - Calling `req->session()` without `app().enableSession(...)` first — undefined.
 - Writing session **after** `callback(resp)` — cookie won't be set on current response.
 - Storing large blobs (file bytes, big JSON) in session — session is in-memory (`CacheMap`, SessionManager.cc:50).
@@ -39,7 +39,7 @@ app().registerHandler("/login",
         auto user = req->getParameter("user");
         auto passwd = req->getParameter("passwd");
         if (checkCredentials(user, passwd)) {
-            req->session()->insert("userId", userId);          // M.3 typed insert
+            req->session()->insert("userId", userId);          // M.3 typed insert（userId 须为 std::string，与 check 模板的读侧类型一致）
             req->session()->changeSessionIdToClient();          // M.4 anti-fixation
             auto resp = HttpResponse::newHttpResponse();
             resp->setBody("ok");
@@ -73,8 +73,9 @@ app().registerHandler("/logout",
 app().registerHandler("/profile",
     [](const HttpRequestPtr &req,
        std::function<void(const HttpResponsePtr &)> &&callback) {
-        auto loggedIn = req->session()->getOptional<bool>("loggedIn").value_or(false);
-        if (!loggedIn) {
+        // 读的是 login 写进去的那个 key，类型也必须与写入时的静态类型一致
+        auto userId = req->session()->getOptional<std::string>("userId");
+        if (!userId) {
             auto resp = HttpResponse::newHttpResponse();
             resp->setStatusCode(k401Unauthorized);
             callback(resp);
@@ -102,9 +103,10 @@ app().enableSession(1200)   // M.1 — required before any req->session() works
 `Cookie` 构造签名是 `Cookie(std::string key, std::string value)`（`Cookie.h:39-42`，还有 `Cookie() = default`）。`HttpResponse::addCookie` 有三个重载（`HttpResponse.h:272-277`）：
 
 ```cpp
-virtual void addCookie(const std::string &key, const std::string &value);  // :272
-virtual void addCookie(const Cookie &cookie) = 0;                          // :276
-virtual void addCookie(Cookie &&cookie) = 0;                               // :277
+virtual void addCookie(const std::string &key,
+                       const std::string &value) = 0;                        // :272-273
+virtual void addCookie(const Cookie &cookie) = 0;                            // :276
+virtual void addCookie(Cookie &&cookie) = 0;                                 // :277
 ```
 
 **禁止手工拼 Set-Cookie 字符串**（`resp->addHeader("Set-Cookie", "k=v; Path=/; ...")`）：
@@ -174,7 +176,7 @@ resp->addCookie(std::move(kill));
 
 ## Key rules
 
-1. Use `getOptional<T>` / `modify<T>` — never `operator[]`.
+1. Use `getOptional<T>` / `modify<T>` — never `operator[]`（Session 里根本没有这个成员，写它是编译错误）。读写必须成对：同一个 key + 同一个静态类型。`getOptional<T>` 遇到 key 不存在或 `typeid(T) != it->second.type()` 时只打 `LOG_ERROR << "Bad type"` 并返回 `std::nullopt`（`Session.h:78-92`），**不抛异常**——所以"读不到就是没登录"这类判断必须用 `if (!opt)`，用 `value_or(...)` 静默兜底会把写错的 key 一路当成未登录。
 2. Call `changeSessionIdToClient()` after successful login.
 3. Finish all session writes **before** `callback(resp)`.
 4. `enableSession` must be in the startup chain.

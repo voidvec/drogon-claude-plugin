@@ -32,8 +32,8 @@ license: MIT
 ```
 
 生成 `CMakeLists.txt`，包含：
-- `find_package(drogon REQUIRED)`
-- `target_link_libraries(your_app PRIVATE drogon::drogon drogon::orm_lib)`
-- `target_compile_definitions(your_app PRIVATE USE_COROUTINE)`
+- `find_package(Drogon CONFIG REQUIRED)`
+- `target_link_libraries(your_app PRIVATE Drogon::Drogon)`（ORM / Redis / WebSocket 都在这一个目标里，无独立库目标）
+- `set(CMAKE_CXX_STANDARD 20)` + `CMAKE_CXX_STANDARD_REQUIRED ON`（协程由 drogon **自身**的 `USE_COROUTINE` 开关决定，**不要**在下游写 `target_compile_definitions(... USE_COROUTINE)`，对已安装的 `Drogon::Drogon` 无效）
 ## 参考文件
 详细实现指南见 `references/code-guide.md`（含参数验证、代码模板、禁止模式清单）。生成代码前先读取该文件。

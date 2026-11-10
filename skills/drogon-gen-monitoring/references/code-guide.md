@@ -1,6 +1,6 @@
 # drogon-gen-monitoring 实现指南
 
-所有 API 与行为均已对照 drogon v1.9.13 源码核对（lib/inc/drogon/utils/monitoring/*.h、lib/inc/drogon/plugins/PromExporter.h、lib/src/PromExporter.cc、examples/prometheus_example）。引用格式为 文件:行号。
+drogon 侧 API 与行为均已对照 drogon v1.9.13 源码核对（lib/inc/drogon/utils/monitoring/*.h、lib/inc/drogon/plugins/PromExporter.h、lib/src/PromExporter.cc、examples/prometheus_example）。引用格式为 文件:行号。文中凡出现 `pay-plugin` / `authforge` 的段落是私有仓库里的落地经验，那两个仓库不随插件分发、其行号坐标**不在源码核对范围内**，只作模式参考，不要当作可复核证据。
 
 ## 1. 参数验证：指标选型
 
@@ -96,7 +96,7 @@ Task<HttpResponsePtr> PromStat::invoke(const HttpRequestPtr &req, MiddlewareNext
 
 静态 `std::atomic<uint64_t>` 成员 + `++` 自增 + `snapshot()`/`toPrometheus()` 汇总导出（PayAuthMetrics.h:20-23、PayAuthMetrics.cc:9-56），由独立的低频 handler 输出 Prometheus 文本。
 
-何时用：Prometheus 采集开销敏感的高频路径。monitoring::Counter 每次 increment 拿内部 mutex（Counter.h:53），`Collector::metric()` 查找再拿一层 mutex（Collector.h:74）——一次采集两次加锁；atomic `++` 无锁。pay-plugin 在每请求鉴权中调 `PayAuthMetrics::incXxx()`（AuthCheck.cc:164-246），PromExporter 只挂 `/metrics/base`（examples/pay-server/config.json:127-132），业务计数走自有路径，两者路径错开互不冲突。
+何时用：Prometheus 采集开销敏感的高频路径。monitoring::Counter 每次 increment 拿内部 mutex（Counter.h:53），`Collector::metric()` 查找再拿一层 mutex（Collector.h:74）——一次采集两次加锁；atomic `++` 无锁。pay-plugin 在每请求鉴权中调 `PayAuthMetrics::incXxx()`（私有仓库，无行号坐标），并把 PromExporter 只挂在 `/metrics/base`，业务计数走自有路径，两者路径错开互不冲突。
 
 ## 禁止模式清单
 

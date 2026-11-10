@@ -30,7 +30,8 @@ Extract from user input:
 ## 测试组织约定
 
 - **目录约定**：测试用例放 `tests/` 目录（源文件用 `.cc`）。
-- **CMake 扫描**：在 `CMakeLists.txt` 中 `include(ParseAndAddDrogonTests.cmake)` 后调用 `ParseAndAddDrogonTests(${PROJECT_NAME})`，该脚本递归扫描 `tests/` 下含 `DROGON_TEST` 宏的 `.cc` 文件并自动注册为单独的测试目标——**无需手写 `add_test`**。
+- **CMake 注册**：`find_package(Drogon CONFIG REQUIRED)` 已经 `include` 了 `ParseAndAddDrogonTests.cmake`（`DrogonConfig.cmake.in:53-58`），随后调用 `ParseAndAddDrogonTests(${test_target})` 即可，**无需手写 `add_test`**。⚠️ 但它**不扫目录**：入口函数只取 `get_target_property(SourceFiles ${TestTarget} SOURCES)`（`cmake/ParseAndAddDrogonTests.cmake:74-79`），再逐个用 `${CMAKE_CURRENT_SOURCE_DIR}/${SourceFile}` 拼路径解析（`:39-40`）。也就是说**凡是没写进 `add_executable(...)` 源列表的 `.cc`，一条 ctest 都不会注册**，而且不报错——最容易踩成"测试目录里文件写好了、`ctest` 显示 0 个用例"。另需 `enable_testing()`，`ctest` 才有测试可跑。
+- **注册粒度**：解析器用正则 `[ \t]*DROGON_TEST[ \t]*\([a-zA-Z0-9_]+\)` 抓用例名（`:50`），每个名字生成 `add_test(NAME <用例名> COMMAND <target> -r <用例名>)`（`:68`）——同一个二进制、每条用例一个 ctest 条目。所以：用例名只能含字母/数字/下划线、**在整个 target 内必须唯一**（重名会在 ctest 里互相覆盖），写在注释里的 `DROGON_TEST` 会被 `RemoveComments` 去掉。
 - **自动注册**：每个 `DROGON_TEST(MyTest)` 宏生成一个 `DrObject` 子类，框架通过 `DrClassMap` 在静态初始化期自动登记，`drogon::test::run()` 时枚举执行。
 
 ## Code generation
@@ -246,12 +247,15 @@ endif()
 
 # 单进程跑全部 DROGON_TEST；退出码原样传给 CTest。
 # WORKING_DIRECTORY 钉在二进制目录，./config.json ./.env 才能解析。
+# ⚠️ enable_testing() 必须在 add_test 之前出现于本 CMakeLists（或父级），
+#    否则 ctest 报 "No tests were found"，add_test 静默失效。
+enable_testing()
 add_test(NAME MyAppTests COMMAND ${PROJECT_NAME}
          WORKING_DIRECTORY $<TARGET_FILE_DIR:${PROJECT_NAME}>)
 ```
 
-与「CMake 扫描」节的 `ParseAndAddDrogonTests` 二选一：
-- `ParseAndAddDrogonTests(target)`：每个 `DROGON_TEST` 一个 ctest 条目（`-r Name` 单跑），失败定位细，但每条目起一次完整进程（重复加载配置/建连接）。
+与「CMake 注册」节的 `ParseAndAddDrogonTests` 二选一：
+- `ParseAndAddDrogonTests(target)`：每个 `DROGON_TEST` 一个 ctest 条目（`-r Name` 单跑），失败定位细，但每条目起一次完整进程（重复加载配置/建连接）。用它同样需要 `enable_testing()`，且**它只认 target 的 SOURCES**（见上）。
 - 单 `add_test` 全跑（pay-plugin 模式，`tests/CMakeLists.txt:89-97`）：一个进程顺序跑全部用例，启动开销一次付清；隔离需求靠端口/DB 名解决（见下节）。
 
 ## 并行/串行注意（端口与数据库隔离）

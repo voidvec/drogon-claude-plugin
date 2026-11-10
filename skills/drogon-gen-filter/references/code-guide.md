@@ -12,6 +12,7 @@ Extract from user input:
 - `FILTER_ADD` macro — **does not exist**, use `app().registerFilter(...)` to register
 - `HttpFilter<ClassName>` without `AutoCreation` — must write `HttpFilter<ClassName, false>`, otherwise `registerFilter()`'s `static_assert(!T::isAutoCreation)` causes compilation failure (`HttpAppFramework.h:696-699`)
 - Returning from `doFilter()` without calling either `fcb` or `fccb` — violates A.1 callback discipline
+- `Json::Value({{"k", "v"}})` to build a JSON object — jsoncpp's `Value` has **no `initializer_list` constructor** (checked in the `value.h` of tags 1.9.5/1.9.6/1.9.7 and `master`), so this silently matches `Value(const String &)` and builds a `std::string` from two *unrelated* string literals' start/end pointers (undefined behavior, and not an object). Write `Json::Value body; body["k"] = "v";` instead. <!-- fact-guard-waived:Json::Value({{ -->
 
 ## Callback type quick reference
 
@@ -32,8 +33,9 @@ class ${filter_name} : public drogon::HttpFilter<${filter_name}, false> {
                   drogon::FilterChainCallback &&fccb) override {
         auto token = req->getHeader("Authorization");
         if (token.empty() || !verifyToken(token)) {
-            auto resp = drogon::HttpResponse::newHttpJsonResponse(
-                Json::Value({{"error", "unauthorized"}}));
+            Json::Value body;
+            body["error"] = "unauthorized";
+            auto resp = drogon::HttpResponse::newHttpJsonResponse(body);
             resp->setStatusCode(drogon::k401Unauthorized);
             fcb(resp);  // intercept
             return;

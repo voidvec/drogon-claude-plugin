@@ -104,7 +104,7 @@ drogon-claude-plugin verify         # CLI 安装器（任意宿主皆可校验�
 
 | 技能 | 用途 |
 |------|------|
-| `drogon-create-controller` | 控制器（Simple/Http/WebSocket）、路径前缀差异、`:param`、自动注册 |
+| `drogon-create-controller` | 控制器（Simple/Http/WebSocket）、路径前缀差异、`{}` / `{N}` 路径参数、自动注册 |
 | `drogon-gen-lambda-handler` | `registerHandler` lambda 路由（`{N}` 参数绑定） |
 | `drogon-gen-orm-crud` | ORM CRUD（回调式+协程式）；禁 `execSqlSync`、事务纪律 |
 | `drogon-gen-orm-model` | `drogon_ctl create model` 工作流：model.json 配置、生成物约定、CMake 接入、MSVC/C++20 codecvt shim |

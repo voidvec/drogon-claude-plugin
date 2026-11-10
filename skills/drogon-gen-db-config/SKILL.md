@@ -22,7 +22,7 @@ license: MIT
 - `filename`: 文件路径（SQLite）
 - `user`: 用户名（PostgreSQL/MySQL）
 - `passwd`: 密码（PostgreSQL/MySQL）
-- `connection_number`: 连接数（默认 10）
+- `connection_number`: 连接数（**默认 1**，不是 10——想要 N 条连接必须显式写出来）
 
 ## 输出
 

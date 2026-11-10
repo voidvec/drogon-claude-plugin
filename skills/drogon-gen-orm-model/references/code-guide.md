@@ -6,7 +6,7 @@
 
 生成前逐项检查，缺一即终止并报告，不猜测默认值：
 
-- `db_type` 只能是 `postgresql` / `mysql` / `sqlite3`（create_model.cc:964-968，其他值报 "Does not support"）。
+- `db_type` 只能是 `postgresql` / `mysql` / `sqlite3`（`createModel` 在 create_model.cc:964-968 读 `rdbms` 并转小写后分派，三种都不匹配时落到最后的 else：create_model.cc:1308-1312 打 "Does not support <dbType>" 并 exit(1)）。
 - PG/MySQL：`dbname` 与 `user` 必填，为空时工具 exit(1)（create_model.cc:1014-1028）；`host` 默认 `127.0.0.1`；**MySQL 的 `port` 默认值同样是 5432**（create_model.cc:1125），MySQL 必须显式写 `"port": 3306`。
 - SQLite3：`filename` 必填（create_model.cc:1230-1236）。
 - 密码键 `passwd` 与 `password` 都接受，`passwd` 优先（create_model.cc:1029-1033）。
@@ -54,7 +54,16 @@
 
 `type` 取 `has one` / `has many` / `many to many`；`many to many` 还需 `pivot_table: {table_name, original_key, target_key}`；可选 `original_table_alias` / `target_table_alias` 改生成方法名。列值读写转换用 `convert` 节（`after_db_read` / `before_db_write` / `includes`，create_model.h:138-209）。
 
-restful 控制器节：`enabled`、`resource_uri`（默认 `/*`，`*` 替换为表名并转小写）、`class_name`（默认 `Restful*Ctrl`，可含 `::` 命名空间）、`filters` 数组、`db_client`（`name`/`is_fast`，须与应用 config 一致）、`directory`（默认 `controllers`）、`generate_base_only`（true 时只生成 `*Base` 类，避免覆盖自定义子类，create_model.cc:1552-1575）。
+restful 控制器节：`enabled`、`resource_uri`、`class_name`、`filters` 数组、`db_client`（`name`/`is_fast`，须与应用 config 一致）、`directory`（默认 `controllers`）、`generate_base_only`（true 时只生成 `*Base` 类，避免覆盖自定义子类，create_model.cc:1552-1575）。
+
+⚠️ `resource_uri` / `class_name` 的**代码默认值都是字符串 `"/*"`**（`create_model.cc:1443` 与 `:1451`），`*` 一律替换成**模型类名**（`tableInfo["className"]`，由表名转成的驼峰，不是表名本身）：
+
+| 键 | 替换后处理 | 表 `user_info` 的缺省结果 |
+|----|-----------|------------------------|
+| `resource_uri` | 整串 `tolower`（`:1446-1449`） | `/userinfo` |
+| `class_name` | 不转小写；`::` 转 `_` 当文件名（`:1451-1456`） | 类名 `UserInfo`（**与模型同名**，不是 `RestfulUserInfoCtrl`） |
+
+示例 `model.json`（`drogon_ctl/templates/model_json.csp:85-88`）里显式写着 `"resource_uri": "/*"` 与 `"class_name": "Restful*Ctrl"`，注释还写 "by default"——那句注释只解释了示例值：省略 `class_name` 时 fallback 是 `"/*"`，得到的是与模型同名的控制器类。想要 `Restful*Ctrl` 风格必须自己显式写出来；同理上游注释说 "the asterisk represents the table name" 也不准确，实际替换源是类名。
 
 ### 完整命令示例
 

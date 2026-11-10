@@ -177,7 +177,8 @@ client->execCommandAsync(ok, err, "del %s %s", k1.c_str(), k2.c_str());
 ## 运行期使用纪律（生成配置时一并提示用户）
 
 - **单例**：通过 `app().getRedisClient()` 获取客户端，**禁止**手动 `std::make_shared<RedisClient>(...)`（框架启动时已创建单例）。
-- **全异步**：`RedisClient` 所有操作（`set`/`get`/`lpush` 等）都是异步的，结果经回调返回。**禁止**假设同步完成，**禁止**用 `execCommand<T>` 同步重载（无法获取结果）。用 `execCommandAsync(successCb, failureCb, "CMD", args...)`。
+- **命令一律走 `execCommand*`**：`RedisClient` **没有** `set` / `get` / `lpush` 这类按命令命名的成员方法。对照 `nosql_lib/redis/inc/drogon/nosql/RedisClient.h` 的公开接口，只有 `execCommandAsync`(:128) / `execCommandSync`(:163、:176 两个重载) / `newSubscriber`(:210) / `newTransaction`(:219) / `newTransactionAsync`(:229) / `setTimeout`(:242) / `closeAll`(:250) / `execCommandCoro`(:275) / `newTransactionCoro`(:308)。写 `client->get("k")` 直接编译失败 <!-- fact-guard-waived:client->get( -->，命令名要作为字符串参数传进去。
+- **默认异步**：事件循环线程上只用 `execCommandAsync(successCb, failureCb, "CMD", args...)` 或协程 `execCommandCoro`。**`execCommandSync` 是阻塞的**（`RedisClient.h:163,176`），在 IO 循环线程调用会把这条循环上的所有连接钉死——它只给非循环线程用。
 - **错误处理**：`RedisException` 经失败回调传入，**禁止**忽略——失败回调中 `callback(错误响应)` + `LOG_ERROR`，确保响应被发送。
 - **订阅防泄漏**（`RedisSubscriber`）：`subscribe()` 后**必须**在合适时机 `unsubscribe()`，否则资源泄漏（源码 `RedisSubscriber.h:26-28`："until unsubscribe() is called ... or the subscriber/RedisClient who creates it no longer exists"）。订阅者析构函数应调用 `unsubscribe()` 兜底。
 
@@ -185,7 +186,8 @@ client->execCommandAsync(ok, err, "del %s %s", k1.c_str(), k2.c_str());
 
 - **禁止**错误键名：`password`（应为 `passwd`）、`db_name` / `database`（应为 `db`）、`host` / `port` 层级写错。
 - **禁止**手动 `std::make_shared<RedisClient>(...)`——用 `app().getRedisClient()` 单例。
-- **禁止**使用同步重载 `execCommand<T>` 期待拿到结果——用 `execCommandAsync(successCb, failureCb, ...)`。
+- **禁止**臆造 API：既没有 `client->get(...)` / `client->set(...)` 这类命令方法，也没有裸 `execCommand<T>(...)` 重载 <!-- fact-guard-waived:client->get( --> <!-- fact-guard-waived:client->set( --> <!-- fact-guard-waived:execCommand< -->；只有 `execCommandAsync` / `execCommandSync<T>` / `execCommandCoro` 三个入口。
+- **禁止**在事件循环线程用 `execCommandSync`——它是阻塞调用，会拖死该循环上的全部连接。
 - **禁止**漏掉失败回调：`RedisException` 经失败回调传入，必须 `callback(错误响应)` + `LOG_ERROR`。
 - **禁止**订阅后不 `unsubscribe()`（资源泄漏）；订阅者析构应兜底调用。
 - **禁止**在事件循环线程做阻塞 Redis 操作——本项目所有 Redis 调用都必须异步。
