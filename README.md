@@ -104,7 +104,7 @@ Every skill's `references/code-guide.md` was written against the **drogon v1.9.1
 
 | Skill | Purpose |
 |-------|---------|
-| `drogon-create-controller` | Controllers (Simple/Http/WebSocket), path-prefix differences, `:param`, auto-registration |
+| `drogon-create-controller` | Controllers (Simple/Http/WebSocket), path-prefix differences, `{}` / `{N}` path parameters, auto-registration |
 | `drogon-gen-lambda-handler` | `registerHandler` lambda routes (`{N}` parameter binding) |
 | `drogon-gen-orm-crud` | ORM CRUD — callback + coroutine style; banned `execSqlSync`, transaction discipline |
 | `drogon-gen-orm-model` | `drogon_ctl create model` workflow: model.json config, generated-code conventions, CMake integration, MSVC/C++20 codecvt shim |

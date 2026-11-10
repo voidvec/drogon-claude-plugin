@@ -71,6 +71,11 @@ RULE_FIXTURES = {
         "void h(const HttpRequestPtr &req) { app().registerSyncAdvice(cb); }",
         "int main() { app().registerSyncAdvice(cb); app().run(); }",
     ),
+    "CPP.010": (
+        'auto resp = HttpResponse::newHttpJsonResponse(Json::Value({{"error", "unauthorized"}}));',
+        'Json::Value body; body["error"] = "unauthorized"; '
+        "auto resp = HttpResponse::newHttpJsonResponse(body);",
+    ),
     # CSP rules
     "CSP.001": ("<div>{{ name }}</div>", "<div>[[ name ]]</div>"),
     "CSP.002": ("<%raw%>x</%raw%>", "<%view header %>"),
@@ -80,7 +85,10 @@ RULE_FIXTURES = {
     "CSP.006": ("{% if ok %}y{% end %}", "{% key %}"),
     # Config rules
     "CFG.001": ('{"db_clients": [{"password": "x"}]}', '{"passwd": "x"}'),
-    "CFG.002": ('{"username": "root"}', '{"user": "root"}'),
+    "CFG.002": (
+        '{"db_clients": [{"username": "root"}]}',
+        '{"redis_clients": [{"username": "acl_user"}]}',
+    ),
     "CFG.003": ('{"ssl": "true"}', '{"ssl": true}'),
     # Test rules
     "TEST.001": ("TEST(P) { std::thread t([&]{ done(); }); }", "CHECK(task.isDone());"),
@@ -153,6 +161,32 @@ def test_advice_registration_in_main_is_not_flagged():
     """CPP.009 must not fire on the correct pattern (register before run())."""
     legal = "int main() { app().registerSyncAdvice(cb); app().registerBeginningAdvice(cb2); app().run(); }"
     assert not ptu.scan_text(legal, [ _rule("CPP.009") ])
+
+
+# 评审实测出的漏报：UB 写法换一种括号/空格形态就绕过规则，规则只认 `Json::Value({{`。
+JSON_UB_SPELLINGS = [
+    'Json::Value({{"k", "v"}})',
+    'Json::Value ({{"k", "v"}})',
+    'Json::Value({ { "k", "v" } })',
+    'Json::Value{{"k", "v"}}',
+    'drogon::Json::Value({{"k", "v"}})',
+    'return Json::Value({{"error", "unauthorized"}});',
+]
+
+
+@pytest.mark.parametrize("snippet", JSON_UB_SPELLINGS)
+def test_CPP010_fires_on_every_ub_spelling(snippet):
+    """守卫方向:凡"用花括号列表构造 Json::Value"都是同一个 UB，换写法不得放行。"""
+    assert ptu.scan_text(snippet, [_rule("CPP.010")]), f"UB 写法漏报: {snippet}"
+
+
+def test_CPP010_does_not_fire_on_explicit_object_build():
+    """正向对照:逐键赋值是唯一正确写法，规则不能顺手把它一起打死。"""
+    legal = ('Json::Value body;\n'
+             '  body["error"] = "unauthorized";\n'
+             '  body["allowed"] = true;\n'
+             '  callback(HttpResponse::newHttpJsonResponse(body));')
+    assert not ptu.scan_text(legal, [_rule("CPP.010")])
 
 
 def test_file_category_routing():
@@ -614,6 +648,122 @@ def test_scan_still_reads_symlink_pointing_inside_workspace(tmp_path):
     assert data["total"] == 2, f"项目内符号链接被误杀(应照扫): {data}"
     files = {f["file"].replace("\\", "/") for f in data["findings"]}
     assert files == {"link.cc", "src/bad.cc"}, f"扫描文件集不符: {files}"
+
+
+# ---------------------------------------------------------------------------
+# 回归(基线内事实错误 B1/B2/B3, v1.9.13 实证):
+#   - redis_clients 的 `username` 是 Redis 6.0 ACL 的**正确键名**
+#     (ConfigLoader.cc:614 `client.get("username", "")`),CFG.002 此前对所有
+#     配置文件一刀切判 error 并让人改成 `user`——照做会静默丢掉 ACL 用户名。
+#   - `password` 是 `passwd` 为空时的**合法回退键**(ConfigLoader.cc:551-556
+#     与 614-619),判 error 并把可用配置说成错误,属过度。
+#   - `Session::operator[]` **不存在**(Session.h 无该运算符),CPP.008 的
+#     消息把它描述成"返回 std::any& 可用但危险",前提不成立。
+# ---------------------------------------------------------------------------
+
+CFG002_JSON_POSITIVES = [
+    '{"db_clients": [{"username": "root"}]}',
+    '{"db_clients": [{"user": "a", "username": "root"}]}',
+]
+CFG002_YAML_POSITIVES = [
+    "db_clients:\n  - username: root\n",
+    "db_clients:\n  - name: default\n    username: root\n",
+]
+# 合法形态:Redis ACL 用户名必须原样保留,不得报 error。
+CFG002_NEGATIVES = [
+    '{"redis_clients": [{"username": "acl_user", "passwd": "x"}]}',
+    "redis_clients:\n  - username: acl_user\n    passwd: x\n",
+    # 混合配置:db 用正确键名 user,redis 用 username —— 一条都不该报
+    (
+        '{"db_clients": [{"user": "app", "passwd": "x"}],'
+        ' "redis_clients": [{"username": "acl_user", "passwd": "x"}]}'
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "data", sorted(CFG002_JSON_POSITIVES + CFG002_YAML_POSITIVES)
+)
+def test_cfg002_flags_username_only_in_db_clients(data):
+    rule = _rule("CFG.002")
+    assert ptu.scan_text(data, [rule]), f"db_clients 段的 username 漏报: {data}"
+
+
+@pytest.mark.parametrize("data", sorted(CFG002_NEGATIVES))
+def test_cfg002_does_not_flag_redis_username(data):
+    """回归:B1 —— redis ACL 的 username 是正确键名,误报会诱导用户改坏配置。"""
+    rule = _rule("CFG.002")
+    hits = [h.rule_id for h in ptu.scan_text(data, [rule])]
+    assert not hits, f"redis_clients 段的合法 username 被误报: {data} -> {hits}"
+
+
+def test_cfg002_message_names_the_redis_exception():
+    msg = _rule("CFG.002").message
+    assert "redis" in msg.lower() and "username" in msg, (
+        f"CFG.002 消息必须讲清 redis 例外,现为: {msg}"
+    )
+
+
+def test_cfg001_is_warning_because_password_is_a_valid_fallback():
+    """回归:B2 —— password 是 passwd 为空时的回退键,合法但非首选。"""
+    rule = _rule("CFG.001")
+    assert rule.severity == "warning", (
+        f"password 是合法回退键,不应判 error(现 severity={rule.severity})"
+    )
+    assert "fallback" in rule.message.lower() or "passwd" in rule.message
+
+
+def test_cpp008_message_does_not_pretend_the_api_exists():
+    """回归:B3 —— Session 没有 operator[],不能说成"存在但危险"。"""
+    msg = _rule("CPP.008").message
+    assert "does not exist" in msg.lower() or "no operator" in msg.lower(), (
+        f"CPP.008 消息仍把不存在的 API 描述成可用: {msg}"
+    )
+
+
+def test_cfg002_mixed_yaml_config_end_to_end_is_silent(tmp_path):
+    """端到端:混合配置(db 正确 + redis ACL)整份文件必须零命中。"""
+    (tmp_path / "conf").mkdir()
+    (tmp_path / "conf" / "config.yaml").write_text(
+        "db_clients:\n  - user: app\n    passwd: secret\n"
+        "redis_clients:\n  - username: acl_user\n    passwd: secret\n",
+        encoding="utf-8",
+    )
+    old = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        r = subprocess.run(
+            [sys.executable, str(HOOK), "--scan", "--format", "json", "."],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    finally:
+        os.chdir(old)
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    ids = {x["rule_id"] for fnd in data["findings"] for x in fnd["rules"]}
+    assert "CFG.002" not in ids, f"合法混合配置被误报: {data}"
+
+
+# CFG.002 的分段窗口必须有上界:重复锚点(第四轮 F1 的教训同款)不得拖成秒级。
+# 独立 parametrize —— 追加进 PATHOLOGICAL 已在导入期展开,不会被收集。
+CFG002_PATHOLOGICAL = [
+    ('{"db_clients": [' * 20000),
+    ("db_clients:\n" * 20000),
+]
+
+
+@pytest.mark.parametrize(
+    "evil", sorted(CFG002_PATHOLOGICAL), ids=["json-anchor-repeat", "yaml-anchor-repeat"]
+)
+def test_cfg002_survives_pathological_anchor_repeats(evil):
+    import time
+
+    rule = _rule("CFG.002")
+    t0 = time.monotonic()
+    hits = [h.rule_id for h in ptu.scan_text(evil, [rule])]
+    dt = time.monotonic() - t0
+    assert not hits, f"CFG.002 病态输入误报 {hits}"
+    assert dt < 1.0, f"CFG.002 ReDoS: {dt:.1f}s (预算 1s)"
 
 
 if __name__ == "__main__":

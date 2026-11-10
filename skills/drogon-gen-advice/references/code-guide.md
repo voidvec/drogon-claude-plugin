@@ -15,14 +15,14 @@ Extract `advice_type` (required) from the 11 valid values listed in SKILL.md.
 
 | Type | Register API | Callable signature | Intercepts | Lines |
 |------|--------------|--------------------|-----------|-------|
-| sync | `registerSyncAdvice` | `HttpRequestPtr(const HttpRequestPtr&)` | yes (non-empty short-circuits) | 306-313 |
+| sync | `registerSyncAdvice` | **`HttpResponsePtr(const HttpRequestPtr&)`** | yes (非空响应即短路) | 356-358 |
 | pre_routing (intercept) | `registerPreRoutingAdvice` | `void(req, AdviceCallback&&, AdviceChainCallback&&)` | yes | 367 |
 | pre_routing (observe) | `registerPreRoutingAdvice` | `void(const HttpRequestPtr&)` | no | 379 |
 | post_routing (intercept) | `registerPostRoutingAdvice` | 3-arg | yes | 389 |
 | post_routing (observe) | `registerPostRoutingAdvice` | 1-arg | no | 401 |
-| pre_handling (intercept) | `registerPreHandlingAdvice` | 3-arg | yes | — |
-| pre_handling (observe) | `registerPreHandlingAdvice` | 1-arg | no | — |
-| post_handling | `registerPostHandlingAdvice` | `void(req, resp)` (no static responses) | no | — |
+| pre_handling (intercept) | `registerPreHandlingAdvice` | 3-arg | yes | 410 |
+| pre_handling (observe) | `registerPreHandlingAdvice` | 1-arg | no | 422 |
+| post_handling | `registerPostHandlingAdvice` | `void(req, resp)` (no static responses) | no | 430 |
 | pre_sending | `registerPreSendingAdvice` | `void(req, resp)` (includes static) | no | 439-441 |
 | http_response_creation | `registerHttpResponseCreationAdvice` | `void(const HttpResponsePtr&)` (all, incl 404) | no | 303-304 |
 | beginning | `registerBeginningAdvice` | `void()` (once, after run) | no | 277-278 |
@@ -59,9 +59,15 @@ app().registerPreRoutingAdvice([](const HttpRequestPtr &req,
 ### sync (short-circuit)
 
 ```cpp
-app().registerSyncAdvice([](const HttpRequestPtr &req) -> HttpRequestPtr {
-    // Return non-empty response pointer to short-circuit; return nullptr to proceed.
-    return nullptr;
+// 返回类型是 HttpResponsePtr，不是 HttpRequestPtr——写成后者编译不过
+// (HttpAppFramework.h:356-358: std::function<HttpResponsePtr(const HttpRequestPtr&)>)
+app().registerSyncAdvice([](const HttpRequestPtr &req) -> HttpResponsePtr {
+    if (shouldReject(req)) {
+        auto resp = HttpResponse::newHttpResponse();
+        resp->setStatusCode(k403Forbidden);
+        return resp;          // 非空 = 短路，直接把这个响应发给客户端
+    }
+    return nullptr;           // 空 = 继续走路由
 });
 ```
 

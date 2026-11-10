@@ -29,7 +29,7 @@ Drogon 跑在 trantor 的事件循环上；配置项 `number_of_threads` 决定�
 
 | 任务 | Skill | 说明 |
 |------|-------|------|
-| 创建控制器（.h+.cc） | `drogon-create-controller` | simple/http/websocket；含路径前缀差异、`:param`、WebSocket 宏、自动注册、生命周期纪律 |
+| 创建控制器（.h+.cc） | `drogon-create-controller` | simple/http/websocket；含路径前缀差异、`{}`/`{N}` 路径参数、WebSocket 宏、自动注册、生命周期纪律 |
 | 现代 lambda 内联路由 | `drogon-gen-lambda-handler` | `app().registerHandler` + `{N}` 参数绑定；与经典宏二选一不混用 |
 | ORM CRUD 代码 | `drogon-gen-orm-crud` | 回调式 + 协程式；含禁 `execSqlSync`、双回调、事务纪律 |
 | 从数据库生成 ORM 模型 | `drogon-gen-orm-model` | `drogon_ctl create model` 全参数；生成物约定、CMake 接入、MSVC/C++20 codecvt shim、禁止手改生成文件 |
@@ -50,7 +50,7 @@ Drogon 跑在 trantor 的事件循环上；配置项 `number_of_threads` 决定�
 | WebSocket 长连接 | `drogon-gen-websocket` | WS 控制器宏、连接管理/广播、跨线程 send 安全、心跳 |
 | 限流 | `drogon-gen-rate-limiter` | Hodor 插件配置 + 自定义 429；编程式 RateLimiter/SafeRateLimiter；Redis 分布式限流 |
 | 监控指标 | `drogon-gen-monitoring` | PromExporter 插件 + Counter/Gauge/Histogram 采集；禁手写 /metrics |
-| 测试 | `drogon-gen-test` | DROGON_TEST；含断言宏、异步测试、CMake 扫描、自定义 main 与端口隔离 |
+| 测试 | `drogon-gen-test` | DROGON_TEST；含断言宏、异步测试、CMake 注册（`ParseAndAddDrogonTests` 只认 target 的 SOURCES）、自定义 main 与端口隔离 |
 
 ## 通用纪律（跨 Skill）
 

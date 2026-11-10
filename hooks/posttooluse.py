@@ -93,9 +93,12 @@ CPP_RULES: List[Rule] = [
          "or sendRequestCoro() (HttpClient.h:133).",
          "drogon-gen-http-client"),
     # --- Session naked subscript ------------------------------------------
+    # 回归(基线内事实错误 B3, v1.9.13):Session 类根本没有 operator[]
+    # (Session.h 只有 get<T>/getOptional<T>/modify<T>/insert/erase/find),
+    # 旧消息把它描述成"返回 std::any& 可用但易错",前提就是错的。
     Rule("CPP.008", "warning", r"session\w*(?:\s*\(\s*\))?\s*->\s*operator\s*\[\s*\]",
-         "session->operator[] returns std::any& and needs any_cast — error-prone. "
-         "Use getOptional<T>() or modify<T>() instead (Session.h).",
+         "Session has no operator[] — this form does not compile (Session.h). "
+         "Use getOptional<T>() / get<T>() to read and modify<T>() to write.",
          "drogon-gen-session-auth"),
     # --- Advice registered inside a handler --------------------------------
     # Scoped to a registration that appears inside a function taking an
@@ -109,6 +112,19 @@ CPP_RULES: List[Rule] = [
          "Advice must be registered before app().run(), never dynamically inside a handler "
          "(HttpAppFramework.h:273-441, 920-928).",
          "drogon-gen-advice"),
+    # --- jsoncpp brace-list "object" ---------------------------------------
+    # 回归(基线内事实错误 B45, v1.9.13):jsoncpp 的 Json::Value 没有 initializer_list
+    # 构造(value.h 在 1.9.5/1.9.6/1.9.7/master 均 0 命中),`Json::Value({{"k","v"}})`
+    # 会匹配 Value(const String&) 并用两个无关字面量的首尾指针构造 std::string——
+    # 编译通过、非 JSON 对象、且是未定义行为,所以必须由钩子兜底而不是靠编译器。
+    # 模式取 `[({]\s*\{` 而非 `\(\s*\{\{`:评审实测出换写法就绕过(`Json::Value({ { … })`、
+    # `Json::Value{{ … }}`)。仍漏 `Json::Value body{{…}}`(变量名插在中间,加宽要引入
+    # `\w+` 回溯,ReDoS 代价不值),覆盖形态由 tests/test_posttooluse.py 的拼写表钉住。
+    Rule("CPP.010", "error", r"\bJson::Value\s*[({]\s*\{",
+         "Json::Value has no initializer_list constructor — this compiles but is undefined "
+         "behavior (it matches Value(const String &)) and yields no JSON object. "
+         'Build it explicitly: Json::Value body; body["k"] = "v";',
+         "drogon-gen-lambda-handler"),
 ]
 
 # CSP template files (.csp) — tags are case-insensitive in practice, so these
@@ -143,15 +159,29 @@ CSP_RULES: List[Rule] = [
 # Config files (config.json, config.yaml, config.yml) — JSON/YAML keys are case-sensitive
 # 回归(R6):此前模式只接受带双引号的 JSON 键,YAML 形态(`password: secret`)整体
 # 漏报。分支二用 `(?<![\w."])` 挡住 db_password 这类前后缀粘连,避免新误报。
+# 回归(基线内事实错误 B1/B2, v1.9.13 实证):
+#   - B2: `password` 是 `passwd` 为空时的**合法回退键**(ConfigLoader.cc:551-556
+#     与 614-619),不是错误 → severity 降为 warning,措辞改"首选 passwd"。
+#   - B1: `username` 只在 db_clients 段是错的(ConfigLoader.cc:551 用 `user`);
+#     redis_clients 段的 `username` 是 **Redis 6.0 ACL 的正确键名**(:614),
+#     一刀切判 error 会诱导用户把对的配置改坏(ACL 用户名被静默丢弃)。
+#     → 按段判定:JSON 分支用 `[^\]]` 天然挡住数组边界;YAML 分支逐行只吃
+#     缩进行,遇到顶格段头(redis_clients:)即终止。两个分支都有步数上界,
+#     重复锚点不会退化成 O(n²)(第四轮 F1 的教训)。
 CONFIG_RULES: List[Rule] = [
-    Rule("CFG.001", "error", r'"password"\s*:|(?<![\w."])password\s*:',
-         '"password" key found — drogon uses "passwd" for the database password in config. '
-         'Change to "passwd". (See ConfigLoader.cc)',
+    Rule("CFG.001", "warning", r'"password"\s*:|(?<![\w."])password\s*:',
+         '"password" found — drogon prefers "passwd"; "password" is only read as a '
+         'fallback when "passwd" is empty (ConfigLoader.cc:551-556, 614-619). '
+         'Use "passwd" to avoid ambiguity.',
          "drogon-gen-db-config"),
-    Rule("CFG.002", "error", r'"username"\s*:|(?<![\w."])username\s*:',
-         '"username" key found — drogon uses "user" for the database user in config. '
-         'Change to "user". (See ConfigLoader.cc)',
-         "drogon-gen-db-config"),
+    Rule("CFG.002", "error",
+         r'"db_clients"\s*:\s*\[[^\]]{0,600}?"username"\s*:'
+         r'|^db_clients[ \t]*:(?:\r?\n[ \t]+(?:-[ \t]+)?[^\r\n]*?)*?'
+         r'\r?\n[ \t]+(?:-[ \t]+)?username[ \t]*:',
+         '"username" inside db_clients — drogon reads the database user from "user" '
+         '(ConfigLoader.cc:551). Change to "user". NOTE: "username" is the CORRECT key '
+         'in redis_clients (Redis 6.0 ACL, ConfigLoader.cc:614) — do not rename it there.',
+         "drogon-gen-db-config", re.MULTILINE),
     Rule("CFG.003", "error",
          r'"ssl"\s*:\s*"[^"]*"|(?<![\w."])ssl\s*:\s*["\'][^"\']*["\']',
          '"ssl" must be a boolean (true/false), not a string.',

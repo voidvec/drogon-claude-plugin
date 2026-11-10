@@ -119,7 +119,7 @@ app().registerHandler(  // 流式下载：64KB 分块，不整读进内存
                 auto stream = std::shared_ptr<ResponseStream>(std::move(ptr));  // 转 shared 供定时器持有
                 auto file = std::make_shared<std::ifstream>("uploads/big.bin", std::ios::binary);
                 auto loop = app().getLoop();
-                auto id = std::make_shared<trantor::EventLoop::TimerId>(0);
+                auto id = std::make_shared<trantor::TimerId>(0);  // trantor/net/EventLoop.h:40 的命名空间级别名,不是 EventLoop 的嵌套类型
                 *id = loop->runEvery(0.02, [stream, file, loop, id] {  // ≈3MB/s 限速
                     std::string chunk(64 * 1024, '\0');  // 64KB（建议 64KB-1MB）
                     file->read(chunk.data(), chunk.size());

@@ -20,7 +20,7 @@ Extract from user input:
 | API | Signature | Source |
 |-----|-----------|--------|
 | parse | `int MultiPartParser::parse(const HttpRequestPtr&)` 0=ok | MultiPart.h:175 |
-| get files | `const std::vector<HttpFile>& getFiles()` | MultiPart.h:131 |
+| get files | `const std::vector<HttpFile> &getFiles() const` | MultiPart.h:131 |
 | save (default path) | `int HttpFile::save() const` → getUploadPath() | MultiPart.h:64 |
 | save (subpath) | `int HttpFile::save(const std::string &path) const` | MultiPart.h:73 |
 | save as | `int HttpFile::saveAs(const std::string &fileName) const` | MultiPart.h:81 |

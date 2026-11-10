@@ -99,12 +99,13 @@ auto resp = co_await client->sendRequestCoro(req, 5.0);  // throws HttpException
 
 ### forward (coroutine reverse proxy)
 
-协程版反向代理用 `app().forwardCoro(req, hostString [, timeout])`，避免自建 client + 手动复制 header。**目标端口写在 hostString 里**（`"host:port"`）；第三参是 `timeout`（秒，double，0 = 用默认），**不是端口**（HttpAppFramework.h forward 系列同形）：
+协程版反向代理用 `app().forwardCoro(req, hostString [, timeout])`，避免自建 client + 手动复制 header。**`hostString` 必须带 scheme 前缀**（`http://host:port` 或 `https://host:port`）：`HttpClientImpl.cc:171-184` 只在开头匹配到 `https://` / `http://` 时才解析域名与端口，否则**直接 return**——写成裸 `"host:port"` 得到的是一个域名/端口都没设置的客户端，请求永远失败且没有任何报错。第三参是 `timeout`（秒，double，0 = 用默认），**不是端口**（HttpAppFramework.h forward 系列同形）：
 
 ```cpp
-drogon::Task<HttpResponsePtr> proxy(const HttpRequestPtr &req) {
+// 裸协程的参数必须按值:co_await 挂起后 handler 栈帧已退出,引用会悬垂(见 Key rules 第 2 条)
+drogon::Task<HttpResponsePtr> proxy(HttpRequestPtr req) {
     try {
-        auto resp = co_await app().forwardCoro(req, "backend.example.com:8080");
+        auto resp = co_await app().forwardCoro(req, "http://backend.example.com:8080");
         co_return resp;
     } catch (const std::exception &e) {
         LOG_ERROR << "forward failed: " << e.what();

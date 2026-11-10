@@ -18,30 +18,54 @@ project(${project_name} CXX)
 
 set(CMAKE_CXX_STANDARD ${cxx_standard})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(drogon REQUIRED)
+# 包名与目标名大小写都要照抄：导出的是 Drogon::Drogon
+find_package(Drogon CONFIG REQUIRED)
 
 add_executable(${project_name} src/main.cc)
-target_link_libraries(${project_name} PRIVATE drogon::drogon)
+target_link_libraries(${project_name} PRIVATE Drogon::Drogon)
 
 if(${enable_orm})
-    target_link_libraries(${project_name} PRIVATE drogon::orm_lib)
+    # ORM 没有独立目标：orm_lib 的源文件直接编进 drogon 主库
+    # （drogon CMakeLists.txt:374/429/456 把 pg/mysql/sqlite3 impl 累加进 DROGON_SOURCES，
+    #   该变量最终由 :767 target_sources(... PRIVATE ...) 打进主 target），
+    # 链接 Drogon::Drogon 即已带上。真正的前提在 drogon 自己的构建开关上：
+    #   -DBUILD_ORM=ON(CMakeLists.txt:9)，按后端 -DUSE_POSTGRESQL / -DUSE_MYSQL / -DUSE_SQLITE3
+    #   (CMakeLists.txt:630-646 只是 option 开关；真正的 find_package 探测在前，
+    #    pg :367 / mysql :406-407 / sqlite3 :442-443)
+    # 若上游包构建时关掉了 ORM 或找不到客户端库，这里加多少 target_link_libraries
+    # 都救不回来——应在配置期探测，而不是生成一条不存在的链接目标。
+    message(STATUS "ORM enabled: provided by Drogon::Drogon, verify the Drogon build enabled it")
 endif()
 
 if(${enable_redis})
-    # ⚠️ Redis 库名称需验证：当前 drogon 版本可能未导出独立的 Redis 库目标
-    # 实施前需检查 build/CMakeFiles/DrogonConfig.cmake 中的库名定义
-    # 若不存在，Redis 客户端可能已包含在 drogon::drogon 中
-    # target_link_libraries(${project_name} PRIVATE drogon::redis_client)  # 待验证
+    # 同上：Redis 客户端（nosql_lib/redis/src/*.cc，CMakeLists.txt:474-481）也编进主库，
+    # 无独立导出目标。开关是 BUILD_REDIS（:23，CMAKE_DEPENDENT_OPTION 依赖 BUILD_ORM），
+    # 并需要 find_package(Hiredis) 成功（:468）。
+    # ⚠️ Hiredis 没找到时 drogon 不报错、照常构建，只是改用
+    #    lib/src/RedisClientSkipped.cc 等桩件——运行期调用 newRedisClient 会
+    #    LOG_FATAL "Redis is not supported by drogon, please install the hiredis library first."
+    #    然后 **abort()** 直接终止进程（不是抛异常，catch 不住）。
+    #    因此 Redis 依赖必须在配置期就验证，不要等运行时。
+    message(STATUS "Redis enabled: provided by Drogon::Drogon")
 endif()
 
 if(${enable_websocket})
-    # WebSocket 支持已包含在 drogon::drogon 中
-    # 无需额外链接
+    # WebSocket 同样在主库里，无需额外链接。
 endif()
 
 if(${use_coroutine})
-    target_compile_definitions(${project_name} PRIVATE USE_COROUTINE)
+    # ⚠️ 协程不由消费者决定：USE_COROUTINE 是 drogon **自己的** CMake option
+    # （CMakeLists.txt:519-523：`if (DROGON_CXX_STANDARD EQUAL 20)` 才默认 ON，否则 OFF）。
+    # 注意判据是 drogon 自算的 DROGON_CXX_STANDARD（:108-113：用户显式设了 CMAKE_CXX_STANDARD
+    # 就沿用，否则由 HAS_ANY/HAS_STRING_VIEW/HAS_COROUTINE 探测决定 17 还是 20）。
+    # 在下游写 target_compile_definitions(... PRIVATE USE_COROUTINE) 对已安装的
+    # Drogon::Drogon 不产生任何效果。消费者侧要做的是保证 C++ 标准 ≥ 20，
+    # 以及 drogon 本身构建时开了这个开关。
+    if(CMAKE_CXX_STANDARD LESS 20)
+        message(FATAL_ERROR "use_coroutine requires C++20 (got ${CMAKE_CXX_STANDARD})")
+    endif()
 endif()
 ```
 
@@ -52,15 +76,15 @@ endif()
 
 ## 禁止模式清单
 
-- **依赖发现**：用 `find_package(drogon REQUIRED)` + `target_link_libraries(... drogon::drogon)`。**禁止**手动 `include_directories()`（头文件路径经 INTERFACE_INCLUDE_DIRECTORIES 自动传递），**禁止**链接 `libdrogon.a`（硬编码路径不可移植）。
-- **ORM 集成**：用 ORM 时显式 `target_link_libraries(... drogon::drogon drogon::orm_lib)`。**禁止**假设 `drogon::drogon` 已含 ORM（可能编译时禁用），**禁止**链接 `libdrogon_orm.a`。
-- **Conan 安装**：通过 Conan 安装时用 `conan_basic_setup()` 生成的 `drogon_CONAN_TARGETS`；手动编译时检查 `BUILD_ORM` 等选项。**禁止**硬编码 drogon 安装路径（如 `/usr/local/include/drogon`），**禁止**假设特定安装方式。
-- **插件/过滤器编译**：用户写的 `HttpPlugin` / `HttpFilter` 需链接 `drogon::drogon`，头文件用 `#include <drogon/HttpController.h>` 形式。**禁止**遗漏 `drogon::drogon` 依赖，**禁止**误用 `target_include_directories()`（头文件已由 `drogon::drogon` 传递）。
-- **目标名大小写（v1.9.13 源码核对）**：drogon 实际安装导出的目标是 **`Drogon::Drogon`**（`add_library(Drogon::Drogon ALIAS ...)`，drogon `CMakeLists.txt:137`；`install(EXPORT DrogonTargets ... NAMESPACE Drogon::)`，`:825-826`）。`drogon_ctl create project` 生成的官方模板同样用 `Drogon::Drogon`（drogon 源码 `drogon_ctl/templates/cmake.csp:32`）。上方模板里的 `drogon::drogon` 为旧版历史写法，**生成新 CMakeLists 时应统一用 `Drogon::Drogon`**；二者不可混用（CMake 目标名大小写敏感）。
+- **依赖发现**：用 `find_package(Drogon CONFIG REQUIRED)` + `target_link_libraries(... Drogon::Drogon)`。**禁止**手动 `include_directories()`（头文件路径经 INTERFACE_INCLUDE_DIRECTORIES 自动传递），**禁止**链接 `libdrogon.a`（硬编码路径不可移植）。
+- **ORM 集成**：链接 `Drogon::Drogon` 就够了——ORM 与 Redis 都编在主库里，**没有** `drogon::orm_lib` / `libdrogon_orm.a` / `drogon::redis_client` 这些目标可链（`drogon::orm_lib` 之类写下去 CMake 会直接报 "target not found"）。 <!-- fact-guard-waived:drogon::orm_lib --> <!-- fact-guard-waived:drogon::redis_client -->ORM 是否可用取决于 **drogon 自身**的构建开关（`BUILD_ORM` + `USE_POSTGRESQL`/`USE_MYSQL`/`USE_SQLITE3`）；用 `check_include_file_cxx(drogon/orm/DbClient.h ...)` 之类探测比凭空加链接行更诚实。
+- **Conan 安装**：通过 Conan 安装时按 Conan recipe 的 options 传 `-DBUILD_ORM`、`-DUSE_SQLITE3` 等；手动编译时检查同样的选项。**禁止**硬编码 drogon 安装路径（如 `/usr/local/include/drogon`），**禁止**假设特定安装方式。
+- **插件/过滤器编译**：用户写的 `HttpPlugin` / `HttpFilter` 需链接 `Drogon::Drogon`，头文件用 `#include <drogon/HttpController.h>` 形式。**禁止**遗漏该依赖，**禁止**误用 `target_include_directories()`（头文件已由 `Drogon::Drogon` 传递）。
+- **目标名大小写（v1.9.13 源码核对）**：drogon 导出集里的目标是 **`Drogon::Drogon`**，且是 DrogonTargets 里唯一被导出的目标（`add_library(Drogon::Drogon ALIAS ...)`，drogon `CMakeLists.txt:137`；导出集只含 `:695-696` 一个 target；`install(EXPORT DrogonTargets ... NAMESPACE Drogon::)`，`:825-827`；`cmake/templates/DrogonConfig.cmake.in:7-8` 明写 "This module defines the following IMPORTED target: Drogon::Drogon"）。注意口径：**"唯一"指的是 Drogon 自己的导出集**，不是"消费端只见一个 imported target"——`DrogonConfig.cmake.in:14-20` 里 `find_dependency(Trantor/Jsoncpp/UUID/ZLIB ...)` 会把 `Trantor::Trantor` 等依赖目标一并带进来。ORM/Redis 确实没有独立目标可链。`drogon_ctl create project` 生成的官方模板同样用 `Drogon::Drogon`（drogon 源码 `drogon_ctl/templates/cmake.csp:31-32`）。`drogon::drogon` 是历史写法，**不要生成**；CMake 目标名大小写敏感，二者不可混用。
 
 ## drogon_create_views（CSP 视图编译接入，源码核对）
 
-drogon 随包安装 `cmake/DrogonUtilities.cmake`（drogon 源码 `CMakeLists.txt:819-821` 将其装入 `INSTALL_DROGON_CMAKE_DIR`），`find_package(drogon)` 后即可用其中的唯一导出函数。
+drogon 随包安装 `cmake/DrogonUtilities.cmake`（drogon 源码 `CMakeLists.txt:819-821` 将其装入 `INSTALL_DROGON_CMAKE_DIR`）。`DrogonConfig.cmake.in:53-58` 在 `if(NOT TARGET Drogon::Drogon)` 分支里依次 `include` DrogonTargets / DrogonUtilities / ParseAndAddDrogonTests——也就是说 **`Drogon::Drogon` 已由别处定义时（如 `add_subdirectory` 或 FetchContent 直接引入 drogon 源码），这两个辅助函数不会被自动 include**，需要自己 `include(DrogonUtilities)`（配合 `list(APPEND CMAKE_MODULE_PATH ...)`）。正常走 `find_package(Drogon CONFIG REQUIRED)` 则可直接用其中的唯一导出函数。
 
 真实签名为**位置参数**（`DrogonUtilities.cmake:2-4` 头注释，实现 `:5-72`）：
 
@@ -76,7 +100,7 @@ drogon_create_views(<target> <source_path> <output_path>
 - 第 5 参：命名空间前缀（`::` 会被替换为 `_` 拼进类名，`:34-40`）
 
 ```cmake
-find_package(drogon REQUIRED)   # 已 include DrogonUtilities.cmake
+find_package(Drogon CONFIG REQUIRED)   # 已 include DrogonUtilities.cmake
 
 add_executable(web src/main.cc)
 drogon_create_views(web ${CMAKE_CURRENT_SOURCE_DIR}/views
