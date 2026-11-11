@@ -11,6 +11,7 @@
 Run:  python -m pytest tests/test_skills_facts.py
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -142,6 +143,58 @@ REQUIRED = [
     ("skills/drogon-gen-filter/references/code-guide.md", "no `initializer_list` constructor"),
     ("skills/drogon-gen-filter/references/code-guide.md", 'Json::Value body; body["k"] = "v";'),
 ]
+
+
+# ── 坐标型守卫（私有仓库坐标内联化，2026-11-10）──────────────────────────
+# 两层：①私有名同行 + 非 drogon 源坐标 → 红；②特征私有 basename 带坐标 anywhere → 红。
+# 设计见 docs/superpowers/specs/2026-11-10-private-coords-inline-design.md。
+_PRIVATE_REPO_NAMES = re.compile(r"pay-plugin|authforge")
+# 故意不要求点扩展名：私有落点含无扩展名 deploy/docker/Dockerfile:84。
+_COORD_TOKEN = re.compile(r"[\w./-]+:\d+")
+
+# 第二层 denylist：特征私有 basename（drogon 全树 0 命中，无碰撞），带坐标 anywhere 即红。
+PRIVATE_SOURCE_BASENAMES = {
+    "PayPlugin.cc", "TestConfigHelper.h", "PayAuthMetrics.cc", "PayAuthMetrics.h",
+}
+_PRIVATE_COORD = re.compile(
+    r"\b(?:PayPlugin\.cc|TestConfigHelper\.h|PayAuthMetrics\.cc|PayAuthMetrics\.h):\d+"
+)
+
+# 第一层 allowlist：整改后私有名行上合法保留的全部 drogon 源坐标的文件部分。
+DROGON_SOURCE_BASENAMES = {
+    "Counter.h", "Collector.h", "PromExporter.cc",
+    "HttpAppFrameworkImpl.cc", "Hodor.cc",
+}
+DROGON_SOURCE_PATHS = {
+    "examples/redis_cache/test/test_main.cc",
+}
+
+
+def _is_verifiable_drogon_source(file_part):
+    basename = file_part.rsplit("/", 1)[-1]
+    if basename in DROGON_SOURCE_BASENAMES:
+        return True
+    return any(file_part == p or file_part.endswith("/" + p)
+               for p in DROGON_SOURCE_PATHS)
+
+
+def _coord_problems(rel_path, text):
+    """返回私有坐标问题列表（纯函数，便于合成文本正反对照）。
+
+    层②不要求同行有仓库名（兜裸坐标）；层①只在私有名行上判坐标可验证性。
+    同一坐标可能被两层各报一次——守卫是布尔判定，重复不影响"0 命中"结论。
+    """
+    problems = []
+    for line_no, line in enumerate(text.splitlines(), 1):
+        for m in _PRIVATE_COORD.finditer(line):
+            problems.append(f"{rel_path}:{line_no} 私有源坐标 {m.group(0)}（denylist）")
+        if _PRIVATE_REPO_NAMES.search(line):
+            for token in _COORD_TOKEN.findall(line):
+                file_part = token.rsplit(":", 1)[0]
+                if not _is_verifiable_drogon_source(file_part):
+                    problems.append(
+                        f"{rel_path}:{line_no} 私有名行上的不可验证坐标 {token}")
+    return problems
 
 
 def _scanned_files():
@@ -379,3 +432,41 @@ def test_corrected_claim_stays_in_place(rel_path, needle):
     assert needle in path.read_text(encoding="utf-8"), (
         f"{rel_path} 缺少正确表述 {needle!r}——删掉错的不等于改对了"
     )
+
+
+def test_coord_allowlist_has_declared_size():
+    """数量 canary：删一条 allowlist/denylist 只是少放行/少拦一条、不会变红，故锁死数量。"""
+    assert len(DROGON_SOURCE_BASENAMES) == 5, DROGON_SOURCE_BASENAMES
+    assert len(DROGON_SOURCE_PATHS) == 1, DROGON_SOURCE_PATHS
+    assert len(PRIVATE_SOURCE_BASENAMES) == 4, PRIVATE_SOURCE_BASENAMES
+    for name in DROGON_SOURCE_BASENAMES | DROGON_SOURCE_PATHS | PRIVATE_SOURCE_BASENAMES:
+        assert name and name.strip(), f"坐标守卫登记表有空白条目 {name!r}"
+    assert not (PRIVATE_SOURCE_BASENAMES & DROGON_SOURCE_BASENAMES), \
+        "denylist 与 allowlist 相交：私有 basename 不可能同时是可验证 drogon 源"
+
+
+def test_coord_guard_positive_controls():
+    """正向对照：可验证 drogon 源坐标 + 纯署名 + 裸文件名（无坐标）必须放行。"""
+    assert _coord_problems("x.md", "pay-plugin 实测（Counter.h:53）") == []
+    assert _coord_problems("x.md", "authforge 模式，Hodor.cc:76-80") == []
+    assert _coord_problems(
+        "x.md", "官方示例 examples/redis_cache/test/test_main.cc:1，pay-plugin 同构") == []
+    assert _coord_problems("x.md", "pay-plugin 落地经验") == []
+    assert _coord_problems("x.md", "PayPlugin.cc 是私有插件类名") == []
+    assert _coord_problems(
+        "x.md", "pay-plugin 用 HttpAppFrameworkImpl.cc:631-686 证明时序") == []
+
+
+def test_coord_guard_negative_controls():
+    """反向对照：私有坐标（署名/裸/通用名/无扩展名）必须红。"""
+    assert _coord_problems("x.md", "pay-plugin PayPlugin.cc:107")
+    assert _coord_problems("x.md", "authforge main.cc:223-226")
+    assert _coord_problems("x.md", "pay-plugin tests/CMakeLists.txt:46")
+    assert _coord_problems(
+        "x.md", "authforge 只配 path（apps/server/config/config.json:127-134）")
+    assert _coord_problems("x.md", "pay-plugin CMakeLists.txt:82-85")
+    assert _coord_problems("x.md", "authforge deploy/docker/Dockerfile:84")
+    assert _coord_problems("x.md", "排水哨兵（PayPlugin.cc:358-361）")
+    assert _coord_problems("x.md", "TestConfigHelper.h:116-163")
+    assert _coord_problems(
+        "x.md", "汇总导出（PayAuthMetrics.h:20-23、PayAuthMetrics.cc:9-56）")
