@@ -300,7 +300,7 @@ apps/server/config/
 └── config.prod.json   # 生产（启用全部安全特性、HTTPS、严格 CORS）
 ```
 
-- **加载方式**：部署期选择，不做运行时 if/else——Dockerfile 里 `COPY config.prod.json ./config.json`（authforge 模式），程序永远只找 `./config.json`；main 里只做候选路径回退（`./config.json` → `../config.json`，authforge 模式）。
+- **加载方式**：部署期选择，不做运行时 if/else——Dockerfile 里 `COPY config.prod.json ./config.json`，程序永远只找 `./config.json`；main 里只做候选路径回退（`./config.json` → `../config.json`）。
 - **敏感值**：prod 配置中写占位哨兵（如 `"passwd": "OVERRIDE_VIA_FULLA_DB_PASSWORD"`），运行时由环境变量覆盖（`FULLA_DB_PASSWORD` 等）；**禁止**在 prod JSON 里留真实凭据。
 - **环境差异示例**（dev → prod）：DB host `127.0.0.1` → `postgres`；`number_of_threads` `1` → `0`（CPU 核数）；`session_same_site` `"Null"` → `"Lax"`；`number_of_connections`、`timeout`、`auto_batch`、`statement_timeout` 均按环境调高。
 - **同步纪律**：修改 `config.json` 基线时**必须**同步到 `config.dev.json` / `config.ci.json` / `config.prod.json`（否则环境间漂移，authforge AGENTS.md 明文规定）。

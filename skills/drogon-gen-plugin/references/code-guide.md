@@ -256,7 +256,7 @@ int main()
 ```
 
 连带规则：
-- 静态库插件里的控制器**禁止**依赖 `ADD_METHOD_TO` 宏静态注册（同样会被裁剪）；用 `app().registerHandler` 程序化注册（pay-plugin 落地经验：注释 + `registerHttpHandlers()`）。
+- 静态库插件里的控制器**禁止**依赖 `ADD_METHOD_TO` 宏静态注册（同样会被裁剪）；用 `app().registerHandler` 程序化注册（pay-plugin 落地经验：`registerHttpHandlers()` 程序化注册）。
 - 生成静态库形态的插件时，**必须**同时生成 `ensureLinked()` 并在文档/main 模板中调用（"可选但推荐"仅当宿主 100% 会引用插件符号）。
 
 ## 初始化时序：plugin initialize 与 BeginningAdvice
