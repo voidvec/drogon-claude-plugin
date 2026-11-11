@@ -22,7 +22,7 @@
 |---|------|--------|------|----------|
 | 1 | `PayPlugin.cc:107` | 是 | 降署名 | (b) 同行 `HttpAppFrameworkImpl.cc:631-632`/`:663` 证 initAndStart 时序 |
 | 2 | `PayPlugin.cc:113-125` | 是 | 删 | (c) operator[] 插空项→析构解引用因果链 + (a) 内联守卫代码 |
-| 3 | `PayPlugin.cc:90-101` | 是 | 删 | (a) legacy key 内联样例 |
+| 3 | `PayPlugin.cc:90-101` | 是 | 删 | (c) legacy key 检测→迁移报错→throw 机制明述 |
 | 4 | `PayPlugin.cc:205-233` | 是 | 降署名 | (a) EventLoopThread 内联骨架 |
 | 5 | `PayPlugin.cc:338-370` | 是 | 删 | (a) 排水哨兵内联骨架 |
 | 6 | `PayPlugin.cc:358-361` | **裸** | 降署名 | (a) 排水哨兵内联；denylist 兜 |
@@ -53,7 +53,7 @@
 | 1 | `libs/drogon-pay/CMakeLists.txt:26-62` | 是 | 删 | (a) OBJECT library 内联 CMake |
 | 2 | `CMakeLists.txt:82-85` | 是 | 删 | (a) 内联 |
 | 3 | `CMakeLists.txt:8`（:221） | 是 | 删 | (a) Conan2 内联链 + (c) find_package config 语义；**保住 needle `find_package(Drogon CONFIG REQUIRED)`** |
-| 4 | `tests/CMakeLists.txt:68-73` | 是 | 删 | (a) 内联 |
+| 4 | `tests/CMakeLists.txt:68-73` | 是 | 删 | (c) /bigobj 段数上限机制明述 + MSVC 速查表（内联块演示 /FI、/utf-8，不含 /bigobj） |
 | 5 | `libs/drogon-pay/CMakeLists.txt:47-58` | 是 | 删 | (c) shim 机制 + orm-model 技能内联承接 |
 | 6 | `tests/CMakeLists.txt:71` | 是 | 删 | (a) 内联 |
 
@@ -97,7 +97,8 @@
 - denylist 4 basename `find -iname` 全树 **0 命中**（无碰撞、不会误伤 drogon 源）。
 - allowlist 5 basename 各 **1 命中**、全路径 `examples/redis_cache/test/test_main.cc` **存在**。
 - 数量 canary `test_coord_allowlist_has_declared_size` 锁死 5/1/4，条目非空白、denylist∩allowlist=∅。
-- 合成正对照 7 条放行（含可验证 drogon 坐标、纯署名、裸文件名、以及"drogon 自身 `main.cc:5`"锁第一层仓库名闸门——评审 M1 修复，删闸门即红）；反对照 9 条红（含署名/裸/通用名碰撞/无扩展名/坐标与名隔词）。
+- 合成正对照 9 条放行（allowlist 6 条目各有一条合成对照持久锁住拼写——含 `Counter.h`/`Collector.h`/`PromExporter.cc`/`Hodor.cc`/`HttpAppFrameworkImpl.cc`/官方示例全路径；另含纯署名、裸文件名、以及"drogon 自身 `main.cc:5`"锁第一层仓库名闸门，删闸门即红）；反对照 10 条红（含署名/裸/通用名碰撞/无扩展名/坐标与名隔词；4 个 denylist basename 各一条独立对照）。
+- **Task 5 评审加固**（守卫方向子代理 mutation testing 实证）：① 原 `PayAuthMetrics.h/.cc` 合并成一条反对照，错拼其中一个仍被另一个命中而静默放行（fail-open）——拆成两条单 basename 独立对照，错拼任一即红；② `Collector.h`/`PromExporter.cc` 原仅靠 HEAD 文本引用锁拼写，补两条合成正对照后 allowlist 6 条目全部由合成对照持久锁住。18 个变异（删条目/改拼写/去闸门/死检测器/空白/相交）逐一实证被抓。
 - HEAD 回归 `test_no_private_coords_in_fact_sources` 扫全 `_scanned_files()` 面，复用 `_coord_problems` 纯函数，0 命中。
 
 ## 4. 实测（本轮独立重测，非引用计划估算）
@@ -124,10 +125,11 @@
 ## 5. 残余边界（如实登记）
 
 - **通用名裸坐标**：私有坐标若同行既无仓库名、basename 又与 drogon 同名（如裸写 `main.cc:223` 不带 authforge），两层都抓不到——"通用名无法与 drogon 同名文件区分"的固有边界。当前所有通用名私有坐标都与仓库名同行（被第一层覆盖），此边界**当前 0 落点**；不为 hypothetical 写法预设计（沿用 B 批次拒绝理由）。
-- **坐标变体绕过**（代码质量评审 M2 登记）：denylist 与宽正则都只认半角冒号紧跟数字的形态。全角冒号 `PayPlugin.cc：107`、冒号后带空格 `PayPlugin.cc: 107` 这类变体两层都抓不到。当前扫描面 0 落点；若未来出现需重构该行或扩展正则，不在本轮预设计。
+- **坐标变体绕过**（代码质量评审 M2 + 守卫方向评审 M2 登记）：denylist 与宽正则都只认半角冒号紧跟数字的形态。全角冒号 `PayPlugin.cc：107`、冒号后带空格 `PayPlugin.cc: 107`、冒号前带空格、GitHub `#L107` 形态这类变体两层都抓不到；仓库名大小写/下划线变体（`AuthForge`/`pay_plugin`）本质归约为"通用名裸坐标"边界。当前扫描面全部 0 落点（58 处仓库名提及均为精确小写）；若未来出现需重构该行或扩展正则，不在本轮预设计。
 - **宽正则误报面**：`[\w./-]+:\d+` 也匹配 `host:8080`/`12:30` 这类非文件冒号数字。整改后私有名行上除 drogon 坐标外无此类 token；若未来出现合法非文件 `:数字`，需重构该行或登记。
 - **私有文件名不带行号的叙述**不在本守卫范围，由编辑判断 + 既有 REQUIRED/FORBIDDEN 兜底。
 - **扫描面盲区**（沿用既有守卫的登记）：`references/*.md` 中没有任何 REQUIRED needle 的文件改名不会让坐标守卫红（坐标守卫按 `SCAN_GLOBS` 扫描，改名后文件仍被扫到则不影响；但若改扩展名脱离 glob 则脱离扫描）——与既有事实守卫同边界。
+- **存量坐标范围标注偏松**（坐标取证评审登记，**不在本轮 diff 内**）：plugin code-guide.md :47/:49/:53 引用的 `HttpAppFrameworkImpl.cc` 行窗（`:608-693`/`:663-675`/`:676-686`）相对函数实际边界（run() 520-690、initializeAllPlugins 663-669、路由 init 671-673）略宽或越界数行，所述时序内容均在窗内、结论正确。属存量表述精度问题，留待后续轮次顺手收紧，不在本轮范围。
 
 ## 6. 明确不做（YAGNI / 范围纪律）
 
@@ -140,6 +142,6 @@
 ## 7. 验收对照
 
 - 7 个文件 34 处私有 `文件:行号` 全部剥离（含 4 裸）；技术结论内联自证或 drogon 源 backing。✓（§2/§4）
-- 两层坐标守卫对 HEAD 文本均 0 命中；反对照先红后绿；数量 canary 锁死 allowlist(5+1) 与 denylist(4)。✓（§3/§4）
+- 两层坐标守卫对 HEAD 文本均 0 命中；HEAD 回归先红后绿（剥前 44 条问题→剥后 0；合成反对照设计上恒红，锁检测器活性）；数量 canary 锁死 allowlist(5+1) 与 denylist(4)。✓（§3/§4）
 - 既有三表（33/46/3）与全门禁不变绿。✓（§4；资产传播与全门禁见 Task 4）
 - 报告 + CHANGELOG 声明逐条与代码/测试证据对撞，无过头陈述（层 2 命中数由估算 12 纠正为实测 14）。✓

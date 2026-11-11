@@ -450,6 +450,8 @@ def test_coord_guard_positive_controls():
     """正向对照：可验证 drogon 源坐标 + 纯署名 + 裸文件名（无坐标）必须放行。"""
     assert _coord_problems("x.md", "pay-plugin 实测（Counter.h:53）") == []
     assert _coord_problems("x.md", "authforge 模式，Hodor.cc:76-80") == []
+    assert _coord_problems("x.md", "pay-plugin 实测（Collector.h:74）") == []
+    assert _coord_problems("x.md", "authforge 模式（PromExporter.cc:18-36）") == []
     assert _coord_problems(
         "x.md", "官方示例 examples/redis_cache/test/test_main.cc:1，pay-plugin 同构") == []
     assert _coord_problems("x.md", "pay-plugin 落地经验") == []
@@ -470,8 +472,9 @@ def test_coord_guard_negative_controls():
     assert _coord_problems("x.md", "authforge deploy/docker/Dockerfile:84")
     assert _coord_problems("x.md", "排水哨兵（PayPlugin.cc:358-361）")
     assert _coord_problems("x.md", "TestConfigHelper.h:116-163")
-    assert _coord_problems(
-        "x.md", "汇总导出（PayAuthMetrics.h:20-23、PayAuthMetrics.cc:9-56）")
+    # 两个 basename 各一条独立对照：合并成一行时，错拼其中一个仍被另一个命中而静默放行（fail-open）。
+    assert _coord_problems("x.md", "汇总导出（PayAuthMetrics.h:20-23）")
+    assert _coord_problems("x.md", "汇总导出（PayAuthMetrics.cc:9-56）")
 
 
 def test_no_private_coords_in_fact_sources():

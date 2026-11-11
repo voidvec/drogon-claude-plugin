@@ -32,7 +32,7 @@
 ### Fixed — 私有仓库坐标内联化（报告 PRIVATE-COORDS-INLINE）
 
 - **用户翻不到的私有坐标当证据**：7 个技能文件里 34 处技术结论用 pay-plugin/authforge 的 `文件:行号` 作可复核证据（如 `PayPlugin.cc:107`、`tests/CMakeLists.txt:46`、`apps/server/config/config.json:127-134`），用户拿不到这两个私有仓库，照坐标翻不到会把整段结论一起弃用。现外科手术式剥离全部 34 处（30 处与仓库名同行 + 4 处裸坐标：plugin:228/238 的 `PayPlugin.cc:NN`、monitoring:97 的 `PayAuthMetrics.h/.cc`），技术结论交内联样例或同行 drogon 源坐标自证，仓库名降为"落地经验"署名；同行的 drogon 坐标（`HttpAppFrameworkImpl.cc:631-686`、`Hodor.cc:76-80`、官方 `examples/redis_cache/test/test_main.cc:1`）与 REQUIRED needle（`find_package(Drogon CONFIG REQUIRED)` 等）原样保留。
-- **新增两层坐标守卫**（`tests/test_skills_facts.py`，独立于既有 33/46/3 三表）：①私有名同行 + 非 drogon 源坐标即红（allowlist 放行 5 basename + 1 官方示例全路径）；②特征私有 basename `PayPlugin.cc`/`TestConfigHelper.h`/`PayAuthMetrics.cc`/`PayAuthMetrics.h` 带坐标 anywhere 即红（denylist，已对 tag clone 核实 drogon 全树 0 命中、无碰撞），兜住同行无仓库名的裸坐标；denylist 正则由集合派生（单一事实源）。数量 canary 锁死 5/1/4，合成正对照 7 条放行、反对照 9 条红；整改后对 HEAD 两层均 0 命中（实测整改前第一层 30 红/9 放行、第二层 14 命中）。通用名裸坐标（无仓库名且与 drogon 同名）与全角冒号/冒号后空格变体的固有边界如实登记在报告 §5（当前 0 落点）。
+- **新增两层坐标守卫**（`tests/test_skills_facts.py`，独立于既有 33/46/3 三表）：①私有名同行 + 非 drogon 源坐标即红（allowlist 放行 5 basename + 1 官方示例全路径）；②特征私有 basename `PayPlugin.cc`/`TestConfigHelper.h`/`PayAuthMetrics.cc`/`PayAuthMetrics.h` 带坐标 anywhere 即红（denylist，已对 tag clone 核实 drogon 全树 0 命中、无碰撞），兜住同行无仓库名的裸坐标；denylist 正则由集合派生（单一事实源）。数量 canary 锁死 5/1/4，合成正对照 9 条放行（allowlist 6 条目各一条锁拼写）、反对照 10 条红（4 个 denylist basename 各一条独立对照，防错拼其一仍被另一命中而静默放行）；整改后对 HEAD 两层均 0 命中（实测整改前第一层 30 红/9 放行、第二层 14 命中）。通用名裸坐标（无仓库名且与 drogon 同名）与全角冒号/冒号后空格变体的固有边界如实登记在报告 §5（当前 0 落点）。
 
 ## [0.5.0] - 2026-11-07
 
