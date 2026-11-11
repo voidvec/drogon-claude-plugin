@@ -156,8 +156,9 @@ _COORD_TOKEN = re.compile(r"[\w./-]+:\d+")
 PRIVATE_SOURCE_BASENAMES = {
     "PayPlugin.cc", "TestConfigHelper.h", "PayAuthMetrics.cc", "PayAuthMetrics.h",
 }
+# 正则由集合派生（单一事实源）：加/删 basename 只改集合，避免集合与正则手工双源静默失同步。
 _PRIVATE_COORD = re.compile(
-    r"\b(?:PayPlugin\.cc|TestConfigHelper\.h|PayAuthMetrics\.cc|PayAuthMetrics\.h):\d+"
+    r"\b(?:" + "|".join(re.escape(n) for n in sorted(PRIVATE_SOURCE_BASENAMES)) + r"):\d+"
 )
 
 # 第一层 allowlist：整改后私有名行上合法保留的全部 drogon 源坐标的文件部分。
@@ -455,6 +456,7 @@ def test_coord_guard_positive_controls():
     assert _coord_problems("x.md", "PayPlugin.cc 是私有插件类名") == []
     assert _coord_problems(
         "x.md", "pay-plugin 用 HttpAppFrameworkImpl.cc:631-686 证明时序") == []
+    assert _coord_problems("x.md", "drogon 自身 main.cc:5 启动流程") == []
 
 
 def test_coord_guard_negative_controls():
