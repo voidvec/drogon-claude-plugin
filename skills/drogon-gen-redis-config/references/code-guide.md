@@ -69,7 +69,7 @@ drogon::nosql::RedisClientPtr fast  = drogon::app().getFastRedisClient("cache");
 ```
 
 签名：`getRedisClient(const std::string &name = "default")` / `getFastRedisClient(const std::string &name = "default")`（`HttpAppFramework.h:1413`/`:1421`）。
-**禁止**对未在 `redis_clients` 配置过的名字调 `getRedisClient`——manager 内部 `operator[]` 会插入空指针项，退出析构时解引用崩溃（pay-plugin `PayPlugin.cc:114-117` 注释记录的实测坑）。可选依赖必须先判配置再查询。
+**禁止**对未在 `redis_clients` 配置过的名字调 `getRedisClient`——manager 内部 `operator[]` 会插入空指针项，退出析构时解引用崩溃（pay-plugin 注释记录的实测坑）。可选依赖必须先判配置再查询。
 
 ### 命令 + 双回调模板
 

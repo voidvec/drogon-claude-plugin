@@ -472,3 +472,18 @@ def test_coord_guard_negative_controls():
     assert _coord_problems("x.md", "TestConfigHelper.h:116-163")
     assert _coord_problems(
         "x.md", "汇总导出（PayAuthMetrics.h:20-23、PayAuthMetrics.cc:9-56）")
+
+
+def test_no_private_coords_in_fact_sources():
+    """全扫描面不许有私有仓库坐标（两层守卫对 HEAD 文本 0 命中）。
+
+    用户拿不到 pay-plugin/authforge，私有 文件:行号 是不可复核证据；
+    技术结论必须内联自证或换 drogon/trantor/jsoncpp 源坐标。
+    """
+    bad = []
+    for path in _scanned_files():
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        bad += _coord_problems(rel, path.read_text(encoding="utf-8"))
+    assert not bad, (
+        "以下私有坐标用户无法复核，应内联自证或换 drogon 源坐标: " + str(bad)
+    )

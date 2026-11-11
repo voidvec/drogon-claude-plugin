@@ -125,7 +125,7 @@ ParseAndAddDrogonTests(my_tests)
 
 ## drogon_ctl 生成模型的 CMake 接入（OBJECT library 隔离）
 
-`drogon_ctl create model` 生成的 `.h/.cc` **禁止手改**，因此 pay-plugin/authforge 都把它们隔离到独立 OBJECT library：不进一等目标的 WERROR 警戒线、可单独设置 MSVC 兼容选项（pay-plugin `libs/drogon-pay/CMakeLists.txt:26-62` 实测模式）：
+`drogon_ctl create model` 生成的 `.h/.cc` **禁止手改**，因此 pay-plugin/authforge 都把它们隔离到独立 OBJECT library：不进一等目标的 WERROR 警戒线、可单独设置 MSVC 兼容选项（pay-plugin 实测模式）：
 
 ```cmake
 # 生成代码专用 OBJECT library：drogon_ctl 输出，永不手改，不挂 -Werror
@@ -145,7 +145,7 @@ else()
 endif()
 
 # 主目标用 $<TARGET_OBJECTS> 吸入目标文件——不用 target_link_libraries，
-# 私有 helper 目标因此不必进 install(EXPORT)（pay-plugin CMakeLists.txt:82-85）
+# 私有 helper 目标因此不必进 install(EXPORT)（pay-plugin 模式）
 target_sources(${project_name} PRIVATE $<TARGET_OBJECTS:xxx_models>)
 ```
 
@@ -218,13 +218,13 @@ cmake --preset linux-release
 cmake --build --preset linux-release
 ```
 
-CMakeLists 侧用 `find_package(Drogon CONFIG REQUIRED)`（Conan CMakeDeps 生成的小写包名 `drogon` 亦兼容；pay-plugin 根 `CMakeLists.txt:8` 实测）。**禁止**在 Conan 2 工作流里再手写 `CMAKE_PREFIX_PATH` 指向旧版 Conan（v1）的 `conanbuildinfo.cmake`。
+CMakeLists 侧用 `find_package(Drogon CONFIG REQUIRED)`（Conan CMakeDeps 生成的小写包名 `drogon` 亦兼容；pay-plugin 实测）。**禁止**在 Conan 2 工作流里再手写 `CMAKE_PREFIX_PATH` 指向旧版 Conan（v1）的 `conanbuildinfo.cmake`。
 
 ## MSVC 专项
 
-- `/bigobj`：drogon 模板 + ORM 生成代码常超 MSVC 单目标段数上限，宿主与测试目标都要加（pay-plugin `tests/CMakeLists.txt:68-73`）。
-- `/FI"orm_compat.h"`（MSVC）与 `-include orm_compat.h`（GCC/Clang）：force-include 一个兼容 shim 头，为生成的模型代码补 codecvt/弃用面（pay-plugin `libs/drogon-pay/CMakeLists.txt:47-58`，shim 放在模型目录 `src/models/orm_compat.h`）。
-- `/utf-8`：源码按 UTF-8 解析（无 BOM 中文注释必需，与库目标同契约，pay-plugin `tests/CMakeLists.txt:71`）。
+- `/bigobj`：drogon 模板 + ORM 生成代码常超 MSVC 单目标段数上限，宿主与测试目标都要加（pay-plugin 实测）。
+- `/FI"orm_compat.h"`（MSVC）与 `-include orm_compat.h`（GCC/Clang）：force-include 一个兼容 shim 头，为生成的模型代码补 codecvt/弃用面（pay-plugin 实测，shim 放在模型目录 `src/models/orm_compat.h`）。
+- `/utf-8`：源码按 UTF-8 解析（无 BOM 中文注释必需，与库目标同契约，pay-plugin 实测）。
 - `_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING`、`_CRT_SECURE_NO_WARNINGS`：压制生成代码的弃用告警。
 
 ## 三平台编译差异速查

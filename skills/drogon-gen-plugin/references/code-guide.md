@@ -49,7 +49,7 @@ class ${plugin_name} : public drogon::Plugin<${plugin_name}> {
 1. **构造**：`run()` 内 `initializeAllPlugins`（`HttpAppFrameworkImpl.cc:663-675`）先按配置数组逐个 `createPlugin(name)`——经 `DrClassMap::newSharedObject` 反射构造（`PluginsManager.cc:90-100`），全部构造完再进入下一步。
 2. **依赖解析**：每个插件 `setConfig(config)` 后处理 `dependencies` 数组，`addDependency` 建立依赖边（`PluginsManager.cc:56-75`）；**依赖的插件未在配置中声明会 `LOG_FATAL` + `abort`**（`PluginsManager.cc:70-72`）。
 3. **initialize（深度优先）**：按声明顺序调 `plugin->initialize()`（`PluginsManager.cc:82-87`）；`initialize()` 先递归初始化依赖再调 `initAndStart(config_)`，循环依赖直接 `LOG_FATAL` + `abort`（`Plugin.h:40-63`）。
-4. **run 阶段可用资源**：`initAndStart` 执行时，DB/Redis 客户端已经建好——`run()` 里 `createDbClients`/`createRedisClients`（`HttpAppFrameworkImpl.cc:631-632`）在 `initializeAllPlugins`（`:663`）**之前**；因此在 `initAndStart` 内 `app().getDbClient()` 可用（pay-plugin `PayPlugin.cc:107` 实测）。但普通业务代码在 `run()` 之前**不可**取客户端。
+4. **run 阶段可用资源**：`initAndStart` 执行时，DB/Redis 客户端已经建好——`run()` 里 `createDbClients`/`createRedisClients`（`HttpAppFrameworkImpl.cc:631-632`）在 `initializeAllPlugins`（`:663`）**之前**；因此在 `initAndStart` 内 `app().getDbClient()` 可用（pay-plugin 落地经验）。但普通业务代码在 `run()` 之前**不可**取客户端。
 5. **BeginningAdvice 阶段**：所有插件初始化完成后，路由 init，随后 `getLoop()->queueInLoop` 依次执行全部 BeginningAdvice，最后 `startListening()`（`HttpAppFrameworkImpl.cc:676-686`）——见下文「初始化时序」。
 6. **shutdown()**：应用退出时 `app().quit()` 在主循环内按初始化**逆序**销毁各组件（`HttpAppFrameworkImpl.cc:1034-1056`）：`stopListening` → 路由 reset → **`pluginsManagerPtr_.reset()`（触发 `~PluginsManager` 按初始化逆序逐个调 `shutdown()`，`PluginsManager.cc:20-29`）** → Redis/DB manager reset → loop quit。两个推论：
    - `shutdown()` 里**仍可安全使用** DB/Redis 客户端做最后清理（它们的销毁在插件之后）；
@@ -80,7 +80,7 @@ void ${plugin_name}::initAndStart(const Json::Value &config)
 
     // 4. 可选基础设施：先判配置键存在再 getXxxClient —— 对未配置的名字调
     //    getRedisClient 会用 operator[] 往 manager map 插入空项，退出析构时
-    //    解引用崩溃（pay-plugin PayPlugin.cc:113-125 实测坑）
+    //    解引用崩溃（pay-plugin 实测坑）
     if (config.isMember("redis_client"))
     {
         redisClient_ = drogon::app().getRedisClient(config["redis_client"].asString());
@@ -91,7 +91,7 @@ void ${plugin_name}::initAndStart(const Json::Value &config)
 **禁止**：
 - 裸 `config["key"].asString()`（键缺失时 jsoncpp 返回默认构造值，静默错误）。
 - 对可选客户端**无条件**调 `getRedisClient`/`getDbClient`（见上 4）。
-- 静默忽略过时配置键——检测到旧 schema 时给出可操作的迁移报错并 `throw std::runtime_error` 拒绝启动（pay-plugin `PayPlugin.cc:90-101` 的 legacy key 模式）。
+- 静默忽略过时配置键——检测到旧 schema 时给出可操作的迁移报错并 `throw std::runtime_error` 拒绝启动（pay-plugin 的 legacy key 模式）。
 
 ## 三者职责边界（Plugin / Filter / Middleware）
 
@@ -165,7 +165,7 @@ void ${plugin_name}::shutdown() {
 
 ## 专属 EventLoopThread worker 模式（pay-plugin 实测）
 
-**为何**：插件里的长任务/周期任务（对账扫描、证书刷新、批量推送）**禁止**跑在 app 的 IO 事件循环上——IO loop 被占用即所有请求被卡住。`std::async`/裸 `std::thread` 又没有事件循环语义（定时器、串行化队列）。解法是插件自持一个 `trantor::EventLoopThread`（pay-plugin `PayPlugin.cc:205-233`）：
+**为何**：插件里的长任务/周期任务（对账扫描、证书刷新、批量推送）**禁止**跑在 app 的 IO 事件循环上——IO loop 被占用即所有请求被卡住。`std::async`/裸 `std::thread` 又没有事件循环语义（定时器、串行化队列）。解法是插件自持一个 `trantor::EventLoopThread`（pay-plugin 落地经验）：
 
 ```cpp
 // ${plugin_name}.h
@@ -189,7 +189,7 @@ worker 上的任务天然在**该线程内串行**（runInLoop 队列语义）�
 
 ## shutdown() 优雅排水模式（骨架）
 
-目标：停定时器 → 停接入 → 排空 worker 上 in-flight 任务 → 再拆线程（pay-plugin `PayPlugin.cc:338-370` 实测）：
+目标：停定时器 → 停接入 → 排空 worker 上 in-flight 任务 → 再拆线程（pay-plugin 实测）：
 
 ```cpp
 void ${plugin_name}::shutdown()
@@ -225,17 +225,17 @@ void ${plugin_name}::shutdown()
 
 纪律：
 - `invalidateTimer` **必须**在该定时器所属的循环上调（worker 上的定时器在 workerLoop 上失效）。
-- 排水用 `std::promise` + `runInLoop` 哨兵（`PayPlugin.cc:358-361`）；**禁止**用 `sleep`/自旋计数猜任务何时跑完。
+- 排水用 `std::promise` + `runInLoop` 哨兵（pay-plugin 落地经验）；**禁止**用 `sleep`/自旋计数猜任务何时跑完。
 - `shutdown()` 在主循环线程执行（`HttpAppFrameworkImpl.cc:1034-1056`），排水 `wait()` 的时间必须有限（worker 任务都应是短任务），否则交换卡死。
 
 ## 静态库 DrObject 自动注册丢失（ensureLinked 对策）
 
-Plugin 依赖 `DrObject` 静态初始化自注册（`DrClassMap`）。当插件代码被编译进**静态库**、且宿主没有直接引用其中符号时，链接器会裁剪该 object file——症状是 `app().getPlugin<T>()` 返回空指针、配置里声明了插件却 `createPlugin` 找不到类（pay-plugin `docs/development/plugin_integration.md:46-48`）。
+Plugin 依赖 `DrObject` 静态初始化自注册（`DrClassMap`）。当插件代码被编译进**静态库**、且宿主没有直接引用其中符号时，链接器会裁剪该 object file——症状是 `app().getPlugin<T>()` 返回空指针、配置里声明了插件却 `createPlugin` 找不到类（pay-plugin 落地经验）。
 
-对策（pay-plugin `PayPlugin.cc:20-30`）：库里放一个外部链接的锚函数，宿主 `main()` 首行调用：
+对策（pay-plugin 落地经验）：库里放一个外部链接的锚函数，宿主 `main()` 首行调用：
 
 ```cpp
-// 插件库内（PayPlugin.cc:20-30 模式）
+// 插件库内（pay-plugin 模式）
 namespace ${namespace}
 {
 // 引用插件类强制链接器保留此 object file（连带 DrObject 注册符号）
@@ -256,7 +256,7 @@ int main()
 ```
 
 连带规则：
-- 静态库插件里的控制器**禁止**依赖 `ADD_METHOD_TO` 宏静态注册（同样会被裁剪）；用 `app().registerHandler` 程序化注册（pay-plugin `PayPlugin.cc:235-237` 注释 + `registerHttpHandlers()`）。
+- 静态库插件里的控制器**禁止**依赖 `ADD_METHOD_TO` 宏静态注册（同样会被裁剪）；用 `app().registerHandler` 程序化注册（pay-plugin 落地经验：注释 + `registerHttpHandlers()`）。
 - 生成静态库形态的插件时，**必须**同时生成 `ensureLinked()` 并在文档/main 模板中调用（"可选但推荐"仅当宿主 100% 会引用插件符号）。
 
 ## 初始化时序：plugin initialize 与 BeginningAdvice
@@ -269,12 +269,12 @@ int main()
 - 配置校验与快速失败
 
 **必须等 BeginningAdvice**（此时全部插件已初始化、全部路由已注册）：
-- **getPlugin<T>() 取插件指针并注入**控制器/过滤器的接线——"必须在插件构造之后"（authforge `main.cc:223-226` 注释：`wireControllerPluginDependencies`，回调注册顺序在控制器注册之后）
-- **依赖完整路由表的一致性校验**——如 scope/权限注册表 vs `getHandlersInfo()` 比对，`LOG_FATAL` 阻止带病上线（authforge `main.cc:210-217`：`ResourceScopeRegistry::runConsistencyCheck`，注释明言"runs inside run() (after registerAllControllers) so getHandlersInfo() is fully populated"）
+- **getPlugin<T>() 取插件指针并注入**控制器/过滤器的接线——"必须在插件构造之后"（authforge 注释：`wireControllerPluginDependencies`，回调注册顺序在控制器注册之后）
+- **依赖完整路由表的一致性校验**——如 scope/权限注册表 vs `getHandlersInfo()` 比对，`LOG_FATAL` 阻止带病上线（authforge：`ResourceScopeRegistry::runConsistencyCheck`，注释明言"runs inside run() (after registerAllControllers) so getHandlersInfo() is fully populated"）
 - 依赖"监听已开始/主循环已跑"的运行态上报
 
 补充纪律：
-- BeginningAdvice 按**注册顺序**执行（authforge `main.cc:236` 注释；`HttpAppFrameworkImpl.cc:675` 遍历 vector），有依赖关系的接线**必须**按依赖序注册。
+- BeginningAdvice 按**注册顺序**执行（authforge 注释；`HttpAppFrameworkImpl.cc:675` 遍历 vector），有依赖关系的接线**必须**按依赖序注册。
 - main() 里 `run()` **之前**的代码**禁止**调 `getPlugin`/`getDbClient`（插件与客户端都还没建）。
 
 ## Key rules
