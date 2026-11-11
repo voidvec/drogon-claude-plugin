@@ -45,7 +45,7 @@
 
 **路径正则（源码核对）**：`urls` 各项用 `|` 拼成交替正则 `(a)|(b)`，对 `req->path()` 做 `std::regex_match` **全串匹配**（Hodor.cc:16-21、142）——故 `^/api` 不命中 `/api/x`，要写 `^/api/.*`，结尾 `$` 可省。`sub_limits` 每项 `urls` 须非空且至少一个容量>0，否则整项被 LOG_ERROR 跳过（Hodor.cc:91-104）；主策略先查、sub_limits 按序查，任一层超限即 429（Hodor.cc:233-247）。
 
-**自定义 429 响应（authforge 模式）**：默认拒绝响应是纯文本 + k429、无 CORS 头（Hodor.cc:76-80），浏览器只能看到跨域报错。生产做法（authforge main.cc:249-271）：插件就绪后挂 `setRejectResponseFactory`，统一错误 envelope + 补 CORS 头：
+**自定义 429 响应（authforge 模式）**：默认拒绝响应是纯文本 + k429、无 CORS 头（Hodor.cc:76-80），浏览器只能看到跨域报错。生产做法（authforge 模式）：插件就绪后挂 `setRejectResponseFactory`，统一错误 envelope + 补 CORS 头：
 
 ```cpp
 drogon::app().registerBeginningAdvice([]() {  // 插件构造完成后执行

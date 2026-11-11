@@ -116,7 +116,7 @@ int main(int argc, char *argv[]) {
 
 ### DROGON_TEST_MAIN 的真相
 
-`lib/inc/drogon/drogon_test.h`（739 行）里**没有** `DROGON_TEST_MAIN` 这个宏——定义它不会展开出任何 main。pay-plugin（`tests/main.cc:1`）与 drogon 官方示例（`examples/redis_cache/test/test_main.cc:1`）文件开头的 `#define DROGON_TEST_MAIN` 是不被消费的残留写法。结论：
+`lib/inc/drogon/drogon_test.h`（739 行）里**没有** `DROGON_TEST_MAIN` 这个宏——定义它不会展开出任何 main。pay-plugin 与 drogon 官方示例（`examples/redis_cache/test/test_main.cc:1`）文件开头的 `#define DROGON_TEST_MAIN` 是不被消费的残留写法。结论：
 - 测试 main **必须手写**；
 - 生成代码时**不要**依赖（也不要生成）`#define DROGON_TEST_MAIN` 产生任何行为——它只是历史装饰。
 
@@ -130,7 +130,7 @@ DROGON_EXPORT int run(int argc, char **argv);   // 返回值直接作为进程�
 
 ### 手写 main 骨架（跑完整 app 的集成测试）
 
-需要加载配置/起真实监听时，用 drogon 官方模式（`examples/redis_cache/test/test_main.cc`，pay-plugin `tests/main.cc:56-74` 同构）：把 `app().run()` 放到工作线程，主线程等待事件循环就绪后跑测试，最后优雅退出：
+需要加载配置/起真实监听时，用 drogon 官方模式（`examples/redis_cache/test/test_main.cc`，pay-plugin 同构）：把 `app().run()` 放到工作线程，主线程等待事件循环就绪后跑测试，最后优雅退出：
 
 ```cpp
 #include <drogon/drogon_test.h>
@@ -163,7 +163,7 @@ int main(int argc, char **argv)
 }
 ```
 
-### PAY_TEST_PORT 端口隔离模式（pay-plugin `tests/main.cc:26-46` + `TestConfigHelper.h:31-42`）
+### PAY_TEST_PORT 端口隔离模式（pay-plugin 实测）
 
 config.json 常是宿主示例的直拷（端口 5566）；测试二进制与本地 dev server 同端口时，drogon 的 `reuse_port` 会让两个进程**随机互相劫持请求**。测试 main 载入配置后**必须**改写端口：
 
@@ -186,11 +186,11 @@ for (auto &listener : processedConfig["listeners"])
 }
 ```
 
-**连带纪律**：`custom_config` 里凡是指向"本进程自己"的 URL（如 `metrics_base_url`）也要同步改写成测试端口——否则测试会静默读到 dev server 的数据（pay-plugin `tests/main.cc:34-46` 记录的实测坑）。
+**连带纪律**：`custom_config` 里凡是指向"本进程自己"的 URL（如 `metrics_base_url`）也要同步改写成测试端口——否则测试会静默读到 dev server 的数据（pay-plugin 记录的实测坑）。
 
 ### 防 ctest 挂死：future 只在 ready 后 get
 
-drogon 的 `CHECK` 失败**不会中止**测试——`CHECK(fut.wait_for(5s) == ready)` 失败后紧跟的 `fut.get()` 会无超时永久阻塞，挂死整个 ctest。用守卫函数把"等待"变成可失败的断言（pay-plugin `TestConfigHelper.h:116-163`）：
+drogon 的 `CHECK` 失败**不会中止**测试——`CHECK(fut.wait_for(5s) == ready)` 失败后紧跟的 `fut.get()` 会无超时永久阻塞，挂死整个 ctest。用守卫函数把"等待"变成可失败的断言（pay-plugin 实测）：
 
 ```cpp
 template <typename T, typename Rep, typename Period>
@@ -219,7 +219,7 @@ add_executable(${PROJECT_NAME}
     integration/BarTest.cc
 )
 # 测试复用宿主代码：链接宿主的 OBJECT/STATIC 库目标
-# （pay-plugin 链接 pay_core pay_host_core，tests/CMakeLists.txt:46）
+# （pay-plugin 链接 pay_core pay_host_core）
 target_link_libraries(${PROJECT_NAME} PRIVATE my_core my_host_core Drogon::Drogon)
 
 # config.json / .env 必须出现在测试二进制旁（运行时 CWD 解析）
@@ -256,7 +256,7 @@ add_test(NAME MyAppTests COMMAND ${PROJECT_NAME}
 
 与「CMake 注册」节的 `ParseAndAddDrogonTests` 二选一：
 - `ParseAndAddDrogonTests(target)`：每个 `DROGON_TEST` 一个 ctest 条目（`-r Name` 单跑），失败定位细，但每条目起一次完整进程（重复加载配置/建连接）。用它同样需要 `enable_testing()`，且**它只认 target 的 SOURCES**（见上）。
-- 单 `add_test` 全跑（pay-plugin 模式，`tests/CMakeLists.txt:89-97`）：一个进程顺序跑全部用例，启动开销一次付清；隔离需求靠端口/DB 名解决（见下节）。
+- 单 `add_test` 全跑（pay-plugin 模式）：一个进程顺序跑全部用例，启动开销一次付清；隔离需求靠端口/DB 名解决（见下节）。
 
 ## 并行/串行注意（端口与数据库隔离）
 

@@ -32,7 +32,7 @@ drogon 侧 API 与行为均已对照 drogon v1.9.13 源码核对（lib/inc/drogo
 
 - 字段核对：`path` 默认 `/metrics`（PromExporter.h:94）；`collectors[].name/help/type/labels`，type 取 counter/gauge/histogram（PromExporter.cc:37-110 解析，未知 type 打 LOG_ERROR）。
 - 暴露原理：initAndStart 在 `path` 注册 `{Get, Options}` handler，输出 text/plain 的 Prometheus 文本格式并 setExpiredTime(5)（PromExporter.cc:18-36）。
-- `collectors` 可省略：authforge 只配 `"path": "/metrics"`（apps/server/config/config.json:127-134），指标全在代码内注册。
+- `collectors` 可省略：authforge 只配 `"path": "/metrics"`，指标全在代码内注册。
 - histogram 的 boundaries 无法在 config 声明，必须在代码首次 `metric()` 调用时传入（见下节）。
 
 ## 3. 三种指标的采集代码
@@ -94,7 +94,7 @@ Task<HttpResponsePtr> PromStat::invoke(const HttpRequestPtr &req, MiddlewareNext
 
 ## 4. 补充模式：std::atomic 计数器（pay-plugin PayAuthMetrics 模式）
 
-静态 `std::atomic<uint64_t>` 成员 + `++` 自增 + `snapshot()`/`toPrometheus()` 汇总导出（PayAuthMetrics.h:20-23、PayAuthMetrics.cc:9-56），由独立的低频 handler 输出 Prometheus 文本。
+静态 `std::atomic<uint64_t>` 成员 + `++` 自增 + `snapshot()`/`toPrometheus()` 汇总导出（pay-plugin PayAuthMetrics 模式），由独立的低频 handler 输出 Prometheus 文本。
 
 何时用：Prometheus 采集开销敏感的高频路径。monitoring::Counter 每次 increment 拿内部 mutex（Counter.h:53），`Collector::metric()` 查找再拿一层 mutex（Collector.h:74）——一次采集两次加锁；atomic `++` 无锁。pay-plugin 在每请求鉴权中调 `PayAuthMetrics::incXxx()`（私有仓库，无行号坐标），并把 PromExporter 只挂在 `/metrics/base`，业务计数走自有路径，两者路径错开互不冲突。
 
